@@ -1,0 +1,61 @@
+{
+  "nodes": [
+    {
+      "id": "root",
+      "isroot": true,
+      "topic": "test",
+      "parentid": null,
+      "customStyle": {},
+      "expanded": true,
+      "style": {}
+    },
+    {
+      "id": "0ed93198ae37e4b5",
+      "topic": "分支主题1",
+      "customStyle": {
+        "borderColor": "#4D94FF"
+      },
+      "expanded": true,
+      "parentid": "root",
+      "style": {}
+    },
+    {
+      "id": "0ed9321295cf135a",
+      "topic": "分支主题2",
+      "customStyle": {
+        "borderColor": "#1BD5D2"
+      },
+      "expanded": true,
+      "parentid": "root",
+      "style": {}
+    },
+    {
+      "id": "0ed9326b922f7bd7",
+      "topic": "分支主题3",
+      "customStyle": {
+        "borderColor": "#1DDA70"
+      },
+      "expanded": true,
+      "parentid": "root",
+      "style": {}
+    },
+    {
+      "id": "0ed9329f9fb3bc8a",
+      "topic": "子主题1",
+      "customStyle": {},
+      "expanded": true,
+      "parentid": "0ed9326b922f7bd7",
+      "style": {}
+    }
+  ],
+  "readOnly": false,
+  "toolbar": {
+    "lineType": "default",
+    "strategy": "logic_right",
+    "zoom": 1,
+    "loading": true,
+    "borderColor": "#1DDA70"
+  },
+  "remarks": {},
+  "version": "2.0"
+}

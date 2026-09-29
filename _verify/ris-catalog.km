@@ -1,0 +1,180 @@
+{
+  "root": {
+    "id": "r0",
+    "topic": "RIS功能需求与数据模型",
+    "expanded": true,
+    "children": [
+      {
+        "id": "a1",
+        "topic": "门店管理",
+        "children": [
+          {
+            "id": "a2",
+            "topic": "餐厅门店",
+            "children": [
+              {
+                "id": "a3",
+                "topic": "区域管理",
+                "children": [
+                  {
+                    "id": "a4",
+                    "topic": "桌台管理",
+                    "children": [
+                      {
+                        "id": "a5",
+                        "topic": "员工管理",
+                        "children": [
+                          {
+                            "id": "a6",
+                            "topic": "岗位/角色管理",
+                            "children": [
+                              {
+                                "id": "a7",
+                                "topic": "客户端类型管理",
+                                "children": [
+                                  {
+                                    "id": "a8",
+                                    "topic": "终端管理",
+                                    "children": [
+                                      {
+                                        "id": "a9",
+                                        "topic": "角色权限管理",
+                                        "children": [{ "id": "a10", "topic": "岗位id", "children": [] }]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "b1",
+        "topic": "菜品管理",
+        "children": [
+          { "id": "b2", "topic": "菜品分类", "children": [] },
+          { "id": "b3", "topic": "菜品属性", "children": [] },
+          {
+            "id": "b4",
+            "topic": "菜品管理",
+            "children": [
+              {
+                "id": "b5",
+                "topic": "套餐管理",
+                "children": [
+                  {
+                    "id": "b6",
+                    "topic": "套餐分组",
+                    "children": [
+                      { "id": "b7", "topic": "菜品分类", "children": [] },
+                      { "id": "b8", "topic": "菜品价格", "children": [] },
+                      { "id": "b9", "topic": "定义", "children": [] }
+                    ]
+                  },
+                  { "id": "b10", "topic": "套餐菜品", "children": [] },
+                  { "id": "b11", "topic": "套餐销售配置", "children": [] }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "c1",
+        "topic": "餐盘管理",
+        "children": [
+          { "id": "c2", "topic": "餐盘分类", "children": [] },
+          { "id": "c3", "topic": "分店餐盘库存", "children": [] },
+          { "id": "c4", "topic": "餐盘菜品管理", "children": [] },
+          { "id": "c5", "topic": "id", "children": [] },
+          { "id": "c6", "topic": "分店id", "children": [] },
+          { "id": "c7", "topic": "装盘时间", "children": [] }
+        ]
+      },
+      {
+        "id": "d1",
+        "topic": "订单管理",
+        "children": [
+          { "id": "d2", "topic": "功能需求", "children": [] },
+          { "id": "d3", "topic": "模型", "children": [] },
+          {
+            "id": "d4",
+            "topic": "订单基本信息",
+            "children": [
+              { "id": "d5", "topic": "订单桌台", "children": [] },
+              { "id": "d6", "topic": "订单菜品", "children": [] },
+              { "id": "d7", "topic": "合单记录", "children": [] }
+            ]
+          },
+          { "id": "d8", "topic": "订单价格变更记录", "children": [] }
+        ]
+      },
+      {
+        "id": "e1",
+        "topic": "排队管理",
+        "children": [
+          { "id": "e2", "topic": "菜品分类", "children": [] },
+          { "id": "e3", "topic": "菜品价格", "children": [] },
+          { "id": "e4", "topic": "定义", "children": [] }
+        ]
+      },
+      {
+        "id": "f1",
+        "topic": "预约管理",
+        "children": [
+          { "id": "f2", "topic": "电话预约", "children": [] },
+          { "id": "f3", "topic": "网上预约", "children": [] }
+        ]
+      },
+      {
+        "id": "g1",
+        "topic": "桌台预留管理",
+        "children": [
+          { "id": "g2", "topic": "菜品分类", "children": [] },
+          { "id": "g3", "topic": "全局菜品属性", "children": [] },
+          { "id": "g4", "topic": "菜品信息", "children": [] }
+        ]
+      },
+      {
+        "id": "h1",
+        "topic": "从旧版变更需求",
+        "children": [
+          {
+            "id": "h2",
+            "topic": "菜品分类",
+            "children": [
+              {
+                "id": "h3",
+                "topic": "全局菜品属性",
+                "children": [
+                  { "id": "h4", "topic": "菜品价格", "children": [] },
+                  { "id": "h5", "topic": "定义", "children": [] }
+                ]
+              },
+              {
+                "id": "h6",
+                "topic": "整单不参与套餐价下架",
+                "children": [
+                  { "id": "h7", "topic": "套餐定义", "children": [] },
+                  { "id": "h8", "topic": "定售价", "children": [] }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "template": "default",
+  "theme": "fresh-blue",
+  "version": "1.4.43"
+}

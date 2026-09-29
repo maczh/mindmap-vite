@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist-lib",
+    "rootDir": "src",
+    "skipLibCheck": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src/components/MindMap", "src/data/adapter.ts"]
+}

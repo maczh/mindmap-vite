@@ -1,0 +1,507 @@
+{
+  "root": {
+    "data": {
+      "uid": "h43",
+      "text": "海鲜点餐小程序接口",
+      "expand": true,
+      "note": "",
+      "hyperlink": "",
+      "icon": []
+    },
+    "children": [
+      {
+        "data": {
+          "uid": "h11",
+          "text": "点餐页",
+          "expand": true,
+          "note": "",
+          "hyperlink": "",
+          "icon": []
+        },
+        "children": [
+          {
+            "data": {
+              "uid": "h1",
+              "text": "入境",
+              "expand": true,
+              "note": "",
+              "hyperlink": "",
+              "icon": []
+            },
+            "children": []
+          },
+          {
+            "data": {
+              "uid": "h8",
+              "text": "出境",
+              "expand": true,
+              "note": "",
+              "hyperlink": "",
+              "icon": []
+            },
+            "children": [
+              {
+                "data": {
+                  "uid": "h7",
+                  "text": "table",
+                  "expand": true,
+                  "note": "",
+                  "hyperlink": "",
+                  "icon": []
+                },
+                "children": [
+                  {
+                    "data": {
+                      "uid": "h6",
+                      "text": "dishCategories",
+                      "expand": true,
+                      "note": "",
+                      "hyperlink": "",
+                      "icon": []
+                    },
+                    "children": [
+                      {
+                        "data": {
+                          "uid": "h5",
+                          "text": "dishes",
+                          "expand": true,
+                          "note": "",
+                          "hyperlink": "",
+                          "icon": []
+                        },
+                        "children": [
+                          {
+                            "data": {
+                              "uid": "h4",
+                              "text": "order",
+                              "expand": true,
+                              "note": "",
+                              "hyperlink": "",
+                              "icon": []
+                            },
+                            "children": [
+                              {
+                                "data": {
+                                  "uid": "h3",
+                                  "text": "cart",
+                                  "expand": true,
+                                  "note": "",
+                                  "hyperlink": "",
+                                  "icon": []
+                                },
+                                "children": [
+                                  {
+                                    "data": {
+                                      "uid": "h2",
+                                      "text": "cartId",
+                                      "expand": true,
+                                      "note": "",
+                                      "hyperlink": "",
+                                      "icon": []
+                                    },
+                                    "children": []
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "data": {
+              "uid": "h10",
+              "text": "名称",
+              "expand": true,
+              "note": "",
+              "hyperlink": "",
+              "icon": []
+            },
+            "children": [
+              {
+                "data": {
+                  "uid": "h9",
+                  "text": "categoryId",
+                  "expand": true,
+                  "note": "",
+                  "hyperlink": "",
+                  "icon": []
+                },
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "data": {
+          "uid": "h22",
+          "text": "提交购物车",
+          "expand": true,
+          "note": "",
+          "hyperlink": "",
+          "icon": []
+        },
+        "children": [
+          {
+            "data": {
+              "uid": "h12",
+              "text": "入境",
+              "expand": true,
+              "note": "",
+              "hyperlink": "",
+              "icon": []
+            },
+            "children": []
+          },
+          {
+            "data": {
+              "uid": "h21",
+              "text": "出境",
+              "expand": true,
+              "note": "",
+              "hyperlink": "",
+              "icon": []
+            },
+            "children": [
+              {
+                "data": {
+                  "uid": "h20",
+                  "text": "成功",
+                  "expand": true,
+                  "note": "",
+                  "hyperlink": "",
+                  "icon": []
+                },
+                "children": [
+                  {
+                    "data": {
+                      "uid": "h19",
+                      "text": "storedId",
+                      "expand": true,
+                      "note": "",
+                      "hyperlink": "",
+                      "icon": []
+                    },
+                    "children": [
+                      {
+                        "data": {
+                          "uid": "h18",
+                          "text": "tableId",
+                          "expand": true,
+                          "note": "",
+                          "hyperlink": "",
+                          "icon": []
+                        },
+                        "children": [
+                          {
+                            "data": {
+                              "uid": "h17",
+                              "text": "dishId",
+                              "expand": true,
+                              "note": "",
+                              "hyperlink": "",
+                              "icon": []
+                            },
+                            "children": [
+                              {
+                                "data": {
+                                  "uid": "h16",
+                                  "text": "dishType",
+                                  "expand": true,
+                                  "note": "",
+                                  "hyperlink": "",
+                                  "icon": []
+                                },
+                                "children": [
+                                  {
+                                    "data": {
+                                      "uid": "h15",
+                                      "text": "subDishes",
+                                      "expand": true,
+                                      "note": "",
+                                      "hyperlink": "",
+                                      "icon": []
+                                    },
+                                    "children": [
+                                      {
+                                        "data": {
+                                          "uid": "h14",
+                                          "text": "skuId",
+                                          "expand": true,
+                                          "note": "",
+                                          "hyperlink": "",
+                                          "icon": []
+                                        },
+                                        "children": [
+                                          {
+                                            "data": {
+                                              "uid": "h13",
+                                              "text": "num",
+                                              "expand": true,
+                                              "note": "",
+                                              "hyperlink": "",
+                                              "icon": []
+                                            },
+                                            "children": []
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "data": {
+          "uid": "h23",
+          "text": "确认下单",
+          "expand": true,
+          "note": "",
+          "hyperlink": "",
+          "icon": []
+        },
+        "children": []
+      },
+      {
+        "data": {
+          "uid": "h24",
+          "text": "订单详情",
+          "expand": true,
+          "note": "",
+          "hyperlink": "",
+          "icon": []
+        },
+        "children": []
+      },
+      {
+        "data": {
+          "uid": "h35",
+          "text": "模型",
+          "expand": true,
+          "note": "",
+          "hyperlink": "",
+          "icon": []
+        },
+        "children": [
+          {
+            "data": {
+              "uid": "h32",
+              "text": "购物车",
+              "expand": true,
+              "note": "",
+              "hyperlink": "",
+              "icon": []
+            },
+            "children": [
+              {
+                "data": {
+                  "uid": "h31",
+                  "text": "cartItem购物车菜品单条明细",
+                  "expand": true,
+                  "note": "",
+                  "hyperlink": "",
+                  "icon": []
+                },
+                "children": [
+                  {
+                    "data": {
+                      "uid": "h30",
+                      "text": "cartItemVo输出模型",
+                      "expand": true,
+                      "note": "",
+                      "hyperlink": "",
+                      "icon": []
+                    },
+                    "children": [
+                      {
+                        "data": {
+                          "uid": "h29",
+                          "text": "订单",
+                          "expand": true,
+                          "note": "",
+                          "hyperlink": "",
+                          "icon": []
+                        },
+                        "children": [
+                          {
+                            "data": {
+                              "uid": "h28",
+                              "text": "菜品",
+                              "expand": true,
+                              "note": "",
+                              "hyperlink": "",
+                              "icon": []
+                            },
+                            "children": [
+                              {
+                                "data": {
+                                  "uid": "h27",
+                                  "text": "id",
+                                  "expand": true,
+                                  "note": "",
+                                  "hyperlink": "",
+                                  "icon": []
+                                },
+                                "children": [
+                                  {
+                                    "data": {
+                                      "uid": "h26",
+                                      "text": "did",
+                                      "expand": true,
+                                      "note": "",
+                                      "hyperlink": "",
+                                      "icon": []
+                                    },
+                                    "children": [
+                                      {
+                                        "data": {
+                                          "uid": "h25",
+                                          "text": "ld",
+                                          "expand": true,
+                                          "note": "",
+                                          "hyperlink": "",
+                                          "icon": []
+                                        },
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "data": {
+              "uid": "h33",
+              "text": "SINGLE DISH, COMBO DISH, BUFFET_MEAL, VOUCHER, 自助餐, 打包盒, 套餐, 套餐子菜品, 单点菜",
+              "expand": true,
+              "note": "",
+              "hyperlink": "",
+              "icon": []
+            },
+            "children": []
+          },
+          {
+            "data": {
+              "uid": "h34",
+              "text": "套餐类型",
+              "expand": true,
+              "note": "",
+              "hyperlink": "",
+              "icon": []
+            },
+            "children": []
+          }
+        ]
+      },
+      {
+        "data": {
+          "uid": "h38",
+          "text": "websocket",
+          "expand": true,
+          "note": "",
+          "hyperlink": "",
+          "icon": []
+        },
+        "children": [
+          {
+            "data": {
+              "uid": "h37",
+              "text": "cartInfo",
+              "expand": true,
+              "note": "",
+              "hyperlink": "",
+              "icon": []
+            },
+            "children": [
+              {
+                "data": {
+                  "uid": "h36",
+                  "text": "order",
+                  "expand": true,
+                  "note": "",
+                  "hyperlink": "",
+                  "icon": []
+                },
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "data": {
+          "uid": "h39",
+          "text": "套餐",
+          "expand": true,
+          "note": "",
+          "hyperlink": "",
+          "icon": []
+        },
+        "children": []
+      },
+      {
+        "data": {
+          "uid": "h40",
+          "text": "套餐分组菜品",
+          "expand": true,
+          "note": "",
+          "hyperlink": "",
+          "icon": []
+        },
+        "children": []
+      },
+      {
+        "data": {
+          "uid": "h41",
+          "text": "Combold",
+          "expand": true,
+          "note": "",
+          "hyperlink": "",
+          "icon": []
+        },
+        "children": []
+      },
+      {
+        "data": {
+          "uid": "h42",
+          "text": "分组类型",
+          "expand": true,
+          "note": "",
+          "hyperlink": "",
+          "icon": []
+        },
+        "children": []
+      }
+    ]
+  },
+  "layout": "timeline",
+  "theme": {
+    "template": "default"
+  }
+}

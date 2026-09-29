@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xmap-content version="1.0.0">
+  <sheet id="s2">
+    <topic id="r" template="default">
+      <title>KM-D根节点</title>
+      <children>
+        <topics type="attached">
+          <topic id="a"><title>D子A</title></topic>
+          <topic id="b"><title>D子B</title></topic>
+          <topic id="c"><title>D子C</title></topic>
+          <topic id="d"><title>D子D</title></topic>
+        </topics>
+      </children>
+    </topic>
+  </sheet>
+</xmap-content>

@@ -1,0 +1,13 @@
+{
+  "root": {
+    "id": "r",
+    "topic": "SMM根节点",
+    "children": [
+      { "id": "a", "topic": "SMM子A" },
+      { "id": "b", "topic": "SMM子B" },
+      { "id": "c", "topic": "SMM子C" }
+    ]
+  },
+  "layout": "logicalLeft",
+  "theme": "default"
+}

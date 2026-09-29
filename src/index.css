@@ -1,0 +1,73 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+    "Segoe UI", sans-serif;
+  background: #eef1f5;
+  color: #1f2329;
+}
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 14px 20px 18px;
+  gap: 12px;
+}
+.app-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  flex: none;
+}
+.app-title h1 {
+  font-size: 18px;
+  margin: 0;
+}
+.app-title p {
+  margin: 4px 0 0;
+  color: #6b7280;
+  font-size: 13px;
+}
+.app-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.app-tab {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid #dcdfe6;
+  border-radius: 8px;
+  background: #fff;
+  color: #4a5262;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.app-tab:hover {
+  border-color: #c9dcff;
+  color: #2f6fed;
+}
+.app-tab.is-on {
+  border-color: #2f6fed;
+  background: #2f6fed;
+  color: #fff;
+}
+.app-meta {
+  padding-left: 4px;
+  color: #9aa2ae;
+  font-size: 13px;
+}
+.app-main {
+  flex: 1;
+  min-height: 0;
+}

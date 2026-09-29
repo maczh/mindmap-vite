@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xmap-content version="1.0.0">
+  <sheet id="s1">
+    <topic id="r" template="right">
+      <title>KM-R根节点</title>
+      <children>
+        <topics type="attached">
+          <topic id="a"><title>R子A</title></topic>
+          <topic id="b"><title>R子B</title></topic>
+          <topic id="c"><title>R子C</title></topic>
+        </topics>
+      </children>
+    </topic>
+  </sheet>
+</xmap-content>

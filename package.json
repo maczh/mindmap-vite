@@ -1,0 +1,38 @@
+{
+  "name": "youdao-mindmap-vite",
+  "private": false,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "将有道云笔记思维导图抓取并渲染为可复用的 Vite + React 组件",
+  "main": "dist-lib/youdao-mindmap.umd.js",
+  "module": "dist-lib/youdao-mindmap.es.js",
+  "types": "dist-lib/components/MindMap/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist-lib/components/MindMap/index.d.ts",
+      "import": "./dist-lib/youdao-mindmap.es.js",
+      "require": "./dist-lib/youdao-mindmap.umd.js"
+    }
+  },
+  "files": [
+    "dist-lib"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:lib": "vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2"
+  }
+}
