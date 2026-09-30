@@ -21,10 +21,14 @@ import {
   layoutTree,
   nodeSize,
   textCenterX,
+  prefixWidth,
+  defaultFontSizeForDepth,
+  TEXT_LEFT_INSET,
   type LayoutResult,
   type MindLink,
   type PositionedNode,
 } from "./layout";
+import { measureText } from "./text";
 import {
   MARKER_MAP,
   NODE_ICON_MAP,
@@ -34,10 +38,12 @@ import {
   THEME_LIST,
   THEME_MAP,
   buildBranchColors,
+  FISHBONE_ACCENT,
 } from "./theme";
 import {
   countNodes,
   createNode,
+  depthOf,
   findNode,
   findParent,
   opAddChild,
@@ -151,6 +157,42 @@ function docReducer(state: DocState, action: DocAction): DocState {
   }
 }
 
+/**
+ * 下划线「轨道」样式常量（仅二级及以下 / 叶子节点）：
+ * 文字左对齐，下划线贴合文字块宽度并从文字左端起画，形成「文字 + 下划线」，
+ * 连线再自轨道两端接入，整体连贯 —— 仿参考截图。
+ * 时间轴结构不使用轨道（改由肘形折线的「短横头」承担引导），见 isTimeline。
+ */
+const UNDER_LEFT = TEXT_LEFT_INSET; // 文字 / 轨道左内边距（与布局层同一来源）
+const UNDER_PAD_R = 6; // 轨道右端超出文字的留白
+const UNDER_DY = 7; // 轨道相对节点底边的上移量
+
+/** 文本块宽度（取最宽一行），用于让下划线贴合文字。 */
+function underlineTextWidth(n: PositionedNode): number {
+  const sz = nodeSize(n.node, n.depth);
+  const bold = !!n.node.style?.bold;
+  let w = 0;
+  for (const l of sz.lines) w = Math.max(w, measureText(l || " ", sz.fontSize, bold));
+  return w;
+}
+
+/** 节点是否为下划线样式（考虑逐节点显式覆盖）。 */
+function isUnderlineNode(n: PositionedNode): boolean {
+  const shape = n.node.style?.shape ?? (n.depth <= 1 ? "capsule" : "underline");
+  return shape === "underline";
+}
+
+/** 下划线节点的轨道几何（绝对坐标）：左端 / 右端 / y。 */
+function underlineRail(n: PositionedNode): { left: number; right: number; y: number } {
+  // 右端 = 左内边距 + 前缀（标记 / 优先级 / 图标）占位 + 文本块宽度 + 留白
+  const rightLocal = UNDER_LEFT + prefixWidth(n.node) + underlineTextWidth(n) + UNDER_PAD_R;
+  return {
+    left: n.x + UNDER_LEFT,
+    right: n.x + rightLocal,
+    y: n.y + n.h - UNDER_DY,
+  };
+}
+
 /** 生成连线路径（曲线 / 折线，兼容 h / v / diag 三种主轴） */
 function linkPath(l: MindLink): string {
   if (l.path) return l.path;
@@ -171,11 +213,16 @@ function linkPath(l: MindLink): string {
     const my = y1 + sgn * Math.max(14, Math.abs(y2 - y1) * 0.45);
     return `M ${x1} ${y1} L ${x1} ${my} L ${x2} ${my} L ${x2} ${y2}`;
   }
-  // 水平主轴
-  const x1 = sgn === 1 ? from.x + from.w : from.x;
-  const y1 = from.y + from.h / 2;
-  const x2 = sgn === 1 ? to.x : to.x + to.w;
-  const y2 = to.y + to.h / 2;
+  // 水平主轴。下划线（二级及以下 / 叶子）节点的连入 / 连出点落在「下划线轨道」
+  // 的两端，使线条与文字下划线连贯（仿参考截图）；带框节点仍用边缘中点。
+  const fromU = isUnderlineNode(from);
+  const toU = isUnderlineNode(to);
+  const rf = fromU ? underlineRail(from) : null;
+  const rt = toU ? underlineRail(to) : null;
+  const x1 = rf ? (sgn === 1 ? rf.right : rf.left) : sgn === 1 ? from.x + from.w : from.x;
+  const y1 = rf ? rf.y : from.y + from.h / 2;
+  const x2 = rt ? (sgn === 1 ? rt.left : rt.right) : sgn === 1 ? to.x : to.x + to.w;
+  const y2 = rt ? rt.y : to.y + to.h / 2;
   if (curve) {
     const mx = (x1 + x2) / 2;
     return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
@@ -430,15 +477,16 @@ export function MindMap({
 
   /* ------------------------------ 编辑操作 ------------------------------ */
 
-  /** 新建节点继承当前字号 / 字体默认值（优先基础样式，其次工具栏默认值） */
+  /** 新建节点按「深度」套用默认字号（根 24 / 一级 18 / 二级及以下 11），
+   *  优先尊重用户显式设置的基础字号，其次回退到 defaultFontSizeForDepth。 */
   const withDefaults = useCallback((tree: MindNode, id: string): MindNode => {
     const b = configRef.current.base ?? {};
-    const d = {
-      fontSize: b.fontSize ?? defaultsRef.current.fontSize,
-      fontFamily: b.fontFamily ?? defaultsRef.current.fontFamily,
-    };
     const node = findNode(tree, id);
     if (!node || node.style?.fontSize) return tree;
+    const d = {
+      fontSize: b.fontSize ?? defaultFontSizeForDepth(depthOf(tree, id)),
+      fontFamily: b.fontFamily ?? defaultsRef.current.fontFamily,
+    };
     return opUpdate(tree, id, {}, { fontSize: d.fontSize, fontFamily: d.fontFamily });
   }, []);
 
@@ -655,28 +703,32 @@ export function MindMap({
     }
     let tree = opUpdate(treeRef.current, cur.id, { title: trimmed });
     let focusId: string = cur.id;
+    let createdId: string | null = null;
+    // 新建子/同级节点：按深度套用默认字号（二级及以下 → 11px），并立即进入编辑态
+    const styleFor = (id: string, t: MindNode) => {
+      const b = configRef.current.base ?? {};
+      return {
+        fontSize: b.fontSize ?? defaultFontSizeForDepth(depthOf(t, id)),
+        fontFamily: b.fontFamily ?? defaultsRef.current.fontFamily,
+      };
+    };
     if (next === "child") {
       const r = opAddChild(tree, cur.id);
       if (r.changed) {
-        const b = configRef.current.base ?? {};
-        tree = opUpdate(r.tree, r.focusId, {}, {
-          fontSize: b.fontSize ?? defaultsRef.current.fontSize,
-          fontFamily: b.fontFamily ?? defaultsRef.current.fontFamily,
-        });
+        tree = opUpdate(r.tree, r.focusId, {}, styleFor(r.focusId, r.tree));
         focusId = r.focusId;
+        createdId = r.focusId;
       }
     } else if (next === "sibling") {
       const r = opAddSibling(tree, cur.id, false);
       if (r.changed) {
-        const b = configRef.current.base ?? {};
-        tree = opUpdate(r.tree, r.focusId, {}, {
-          fontSize: b.fontSize ?? defaultsRef.current.fontSize,
-          fontFamily: b.fontFamily ?? defaultsRef.current.fontFamily,
-        });
+        tree = opUpdate(r.tree, r.focusId, {}, styleFor(r.focusId, r.tree));
         focusId = r.focusId;
+        createdId = r.focusId;
       }
     }
     dispatch({ type: "commit", tree, focusId });
+    if (createdId) setEditing({ id: createdId, value: "分支主题" });
   }, []);
 
   /* 编辑框高度随内容自适应 */
@@ -1208,10 +1260,24 @@ export function MindMap({
               const node = p.node;
               const eff = node.style ?? {};
               const isRoot = node.id === doc.tree.id;
-              const shape = eff.shape;
+              // 默认形状按层级：根节点与一级节点为胶囊外框（capsule），
+              // 二级及以下 / 叶子节点保持下划线风格（无外边框）。
+              // 节点显式设置 eff.shape 时仍以自身设置为准。
+              const defaultShape = p.depth <= 1 ? "capsule" : "underline";
+              const shape = eff.shape ?? defaultShape;
               const showRect = shape !== "underline" && shape !== "none";
+              // 下划线「轨道」样式：文字左对齐，下划线贴合文字块宽度，
+              // 连线自轨道两端接入，整体连贯（仿参考截图）。
+              // 仅作用于二级及以下 / 叶子节点。
+              const underTextX = UNDER_LEFT + prefixWidth(node);
+              const underY = p.h - UNDER_DY;
               const noBorder = shape === "none";
               const isUnderline = shape === "underline";
+              // 时间轴与鱼骨图：子节点只用左对齐文字，引导交给结构自身的连线
+              // （时间轴是肘形折线、鱼骨图是 45° 斜骨 + 括号），因此不画下划线轨道。
+              const isTimeline = config.structure === "timeline";
+              const isFishbone = config.structure === "fishbone";
+              const railTextW = isUnderline && !isTimeline && !isFishbone ? underlineTextWidth(p) : 0;
               const rx =
                 shape === "capsule"
                   ? p.h / 2
@@ -1222,27 +1288,32 @@ export function MindMap({
               const accent =
                 node.color ??
                 eff.borderColor ??
-                branchColors.get(node.id) ??
-                theme.nodeStroke;
+                (isFishbone ? FISHBONE_ACCENT : branchColors.get(node.id) ?? theme.nodeStroke);
               const stroke = theme.useBranchColor
                 ? accent
                 : node.color ?? eff.borderColor ?? theme.nodeStroke;
+              // 鱼骨图：根节点为单色骨架的实心蓝灰胶囊（仿参考截图），故强制用强调色填充；
+              // 一级胶囊沿用主题白底（不透明，自然压住斜骨），仅描边用强调色。
               const fill =
-                eff.background ??
-                (isRoot
-                  ? base.nodeFill ?? theme.rootFill
-                  : base.nodeFill ?? theme.nodeFill);
+                isFishbone && isRoot
+                  ? node.color ?? eff.background ?? FISHBONE_ACCENT
+                  : eff.background ??
+                    (isRoot ? base.nodeFill ?? theme.rootFill : base.nodeFill ?? theme.nodeFill);
               const fontFamily = eff.fontFamily ?? DEFAULT_TEXT.fontFamily;
-              const fontSize = eff.fontSize ?? 14;
+              const fontSize = eff.fontSize ?? defaultFontSizeForDepth(p.depth);
+              // 根节点的 rootText 是为「填充色块」设计的对比色；当下划线 / 无边框样式不绘制
+              // 底色块时，根节点文字必须回退到普通节点文字色，否则会出现白字白底不可见。
               const textColor =
                 eff.color ??
-                (isRoot
+                (isFishbone && isRoot
+                  ? "#ffffff"
+                  : isRoot && showRect
                   ? base.nodeText ?? theme.rootText
                   : base.nodeText ?? theme.nodeText);
               const isSelected = node.id === doc.selectedId && !editing;
               const hasKids = node.children.length > 0;
               const isCollapsed = Boolean(node.collapsed);
-              const sized = nodeSize(node);
+              const sized = nodeSize(node, p.depth);
               const lineH = sized.lineHeight;
               const blockTop = p.h / 2 - (sized.lines.length * lineH) / 2 + lineH / 2;
               const textX = textCenterX(node, p.w);
@@ -1323,13 +1394,27 @@ export function MindMap({
                     />
                   )}
 
-                  {isUnderline && (
+                  {!showRect && (
+                    // 无框（下划线 / 无边框）节点：补一块透明命中区，使整节点区域
+                    // 都可点击 / 右键 / 拖拽，交互与带框的一级节点完全一致。
+                    <rect
+                      className="mm-hit"
+                      x={0}
+                      y={0}
+                      width={p.w}
+                      height={p.h}
+                      fill="transparent"
+                      pointerEvents="all"
+                    />
+                  )}
+
+                  {isUnderline && !isTimeline && !isFishbone && (
                     <line
                       className="mm-underline"
-                      x1={4}
-                      y1={p.h - 7}
-                      x2={p.w - 4}
-                      y2={p.h - 7}
+                      x1={UNDER_LEFT}
+                      y1={underY}
+                      x2={UNDER_LEFT + prefixWidth(node) + railTextW + UNDER_PAD_R}
+                      y2={underY}
                       stroke={stroke}
                       strokeWidth={1.6}
                     />
@@ -1339,7 +1424,7 @@ export function MindMap({
                     <text
                       key={i}
                       className="mm-text"
-                      x={textX}
+                      x={isUnderline ? underTextX : textX}
                       y={blockTop + i * lineH}
                       fill={textColor}
                       fontSize={fontSize}
@@ -1347,7 +1432,7 @@ export function MindMap({
                       fontWeight={eff.bold ? 700 : 400}
                       fontStyle={eff.italic ? "italic" : undefined}
                       style={{ textDecoration: decoration } as CSSProperties}
-                      textAnchor="middle"
+                      textAnchor={isUnderline ? "start" : "middle"}
                       dominantBaseline="middle"
                     >
                       {line === "" ? " " : line}
@@ -1458,7 +1543,10 @@ export function MindMap({
                     <g
                       className="mm-collapse"
                       transform={
-                        p.axis === "v"
+                        // 鱼骨图：圆点落在 45° 斜骨（或括号短横头）的锚点上，而不是盒子边缘
+                        isFishbone && p.dotDX !== undefined
+                          ? `translate(${p.dotDX},${p.dotDY ?? p.h / 2})`
+                          : p.axis === "v"
                           ? // 目录组织图给出 busX：折叠按钮与子树竖线起点对齐，看起来竖线从按钮垂下
                             `translate(${p.busX ?? p.w / 2},${p.sgn === 1 ? p.h : 0})`
                           : `translate(${p.sgn === 1 ? p.w : 0},${p.h / 2})`
@@ -1671,7 +1759,7 @@ export function MindMap({
                 width: Math.max(editPos.w, 110),
                 minHeight: editPos.h,
                 fontFamily: editingNode.style?.fontFamily ?? DEFAULT_TEXT.fontFamily,
-                fontSize: editingNode.style?.fontSize ?? 14,
+                fontSize: editingNode.style?.fontSize ?? defaultFontSizeForDepth(editPos.depth),
                 fontWeight: editingNode.style?.bold ? 700 : 400,
                 fontStyle: editingNode.style?.italic ? "italic" : undefined,
                 textDecoration:
@@ -1698,9 +1786,11 @@ export function MindMap({
                   !e.shiftKey &&
                   !(e.nativeEvent as KeyboardEvent).isComposing
                 ) {
+                  // 回车完成编辑并新增同级节点（与右键菜单 / 全局快捷键一致）
                   e.preventDefault();
-                  endEdit(null);
+                  endEdit("sibling");
                 } else if (e.key === "Tab") {
+                  // Tab 完成编辑并新增下级节点（Shift+Tab 仅完成编辑）
                   e.preventDefault();
                   endEdit(e.shiftKey ? null : "child");
                 } else if (e.key === "Escape") {

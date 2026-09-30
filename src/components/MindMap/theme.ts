@@ -1,5 +1,13 @@
 import type { CanvasCategory, LineStyle, MindNode, StructureType } from "./types";
 
+/**
+ * 鱼骨图专用强调色（仿参考截图「奇海 RIS 菜品模型」鱼骨图的蓝灰主色
+ * rgb(115,161,191)）。鱼骨图是一种「单色骨架」图式：脊柱、斜骨、括号连线、
+ * 一级胶囊描边、根节点填充统一使用这一支色，呈现截图里那种整体协调的蓝灰调，
+ * 而非思维导图那种逐分支跳色。节点自身设置了 color / style.borderColor 时仍会优先。
+ */
+export const FISHBONE_ACCENT = "#73a1bf";
+
 /** 分支配色盘（按根节点下第 N 个子分支循环取色） */
 export const BRANCH_COLORS = [
   "#2f6fed",

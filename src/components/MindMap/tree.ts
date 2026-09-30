@@ -115,6 +115,20 @@ export function opAddSibling(
   return { tree, focusId: node.id, changed: true };
 }
 
+/** 计算节点深度：根节点为 0；找不到返回 -1（新增节点按深度套用字号时需要） */
+export function depthOf(root: MindNode, id: string): number {
+  let res = -1;
+  const walk = (n: MindNode, d: number) => {
+    if (n.id === id) {
+      res = d;
+      return;
+    }
+    for (const c of n.children) walk(c, d + 1);
+  };
+  walk(root, 0);
+  return res;
+}
+
 /** 插入上级节点，把当前节点变成新节点的子节点 */
 export function opAddParent(root: MindNode, selectedId: string): TreeOpResult {
   if (root.id === selectedId) {
