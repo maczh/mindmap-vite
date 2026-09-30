@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -u
-cd /home/macro/WorkBuddy/2026-09-29-22-26-44/youdao-mindmap-vite
+cd /home/macro/Work/js/src/github.com/maczh/mindmap-vite
 
 # 本机 shell 无有效 HOME（解析到 /root 且无权限）→ agent-browser 无法建 socket 目录
 export HOME=/home/macro
@@ -10,7 +10,7 @@ ulimit -n 65535
 export CHOKIDAR_USEPOLLING=true
 
 PORT=5184
-OUT=/home/macro/WorkBuddy/2026-09-29-22-26-44/youdao-mindmap-vite/fb-shots
+OUT=/home/macro/Work/js/src/github.com/maczh/mindmap-vite/fb-shots
 mkdir -p "$OUT"
 
 # ---- 启动 vite（同一条前台命令内，保证截图期间存活）----

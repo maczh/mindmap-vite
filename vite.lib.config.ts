@@ -12,9 +12,9 @@ export default defineConfig({
     emptyOutDir: false,
     lib: {
       entry: resolve(__dirname, "src/components/MindMap/index.ts"),
-      name: "YoudaoMindMap",
+      name: "MindMapVite",
       formats: ["es", "umd"],
-      fileName: (format) => `youdao-mindmap.${format}.js`,
+      fileName: (format) => `mindmap-vite.${format}.js`,
     },
     rollupOptions: {
       // jszip 仅在读写 .xmind 时被动态引入，作为外部依赖交给使用方安装

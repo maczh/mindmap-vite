@@ -1,6 +1,6 @@
 #!/bin/bash
 export HOME=${HOME:-/home/macro}
-cd /home/macro/WorkBuddy/2026-09-29-22-26-44/youdao-mindmap-vite || exit 1
+cd /home/macro/Work/js/src/github.com/maczh/mindmap-vite || exit 1
 P=$(pwd)
 V=$P/_verify
 SHOTS=$P/shots-interaction

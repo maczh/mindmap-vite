@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -u
-cd /home/macro/WorkBuddy/2026-09-29-22-26-44/youdao-mindmap-vite
+cd /home/macro/Work/js/src/github.com/maczh/mindmap-vite
 
 export HOME=/home/macro
 export XDG_RUNTIME_DIR=/tmp

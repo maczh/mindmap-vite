@@ -1,6 +1,6 @@
 from PIL import Image
 from collections import Counter
-MINE = "/home/macro/WorkBuddy/2026-09-29-22-26-44/youdao-mindmap-vite/fb-shots/fishbone.png"
+MINE = "/home/macro/Work/js/src/github.com/maczh/mindmap-vite/fb-shots/fishbone.png"
 im = Image.open(MINE).convert("RGB")
 w,h = im.size
 print("size", w, h)

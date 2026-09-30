@@ -52,7 +52,7 @@
 ## 目录结构
 
 ```
-youdao-mindmap-vite/
+mindmap-vite/
 ├── index.html
 ├── vite.config.ts                # demo 应用构建
 ├── vite.lib.config.ts            # 组件库构建（external: react, react-dom, jszip）
@@ -100,12 +100,12 @@ npm run preview   # 预览构建产物
 
 `npm run build:lib` 把 `MindMap` 组件打包成可发布的 npm 包（`dist-lib/`）：
 
-- `youdao-mindmap.es.js` —— ESM，供 `import` 使用
-- `youdao-mindmap.umd.js` —— UMD，供 `<script>` / `require` 使用
+- `mindmap-vite.es.js` —— ESM，供 `import` 使用
+- `mindmap-vite.umd.js` —— UMD，供 `<script>` / `require` 使用
 - `components/MindMap/index.d.ts` —— TypeScript 类型声明
 
 ```tsx
-import { MindMap, adaptYoudaoMindmap, type YoudaoMindmap } from "youdao-mindmap-vite";
+import { MindMap, adaptYoudaoMindmap, type YoudaoMindmap } from "mindmap-vite";
 
 const tree = adaptYoudaoMindmap(raw as unknown as YoudaoMindmap);
 <MindMap data={tree} height={600} editable showToolbar onChange={(t) => save(t)} />;
@@ -118,12 +118,12 @@ const tree = adaptYoudaoMindmap(raw as unknown as YoudaoMindmap);
 
 ## 组件 API 说明
 
-> 所有符号均从 `youdao-mindmap-vite`（或相对路径 `./components/MindMap`）导出。
+> 所有符号均从 `mindmap-vite`（或相对路径 `./components/MindMap`）导出。
 
 ### 快速开始
 
 ```tsx
-import { MindMap, type MindNode } from "youdao-mindmap-vite";
+import { MindMap, type MindNode } from "mindmap-vite";
 
 // 任意来源的树数据都可传入，只要满足 MindNode 结构
 const tree: MindNode = {
@@ -157,7 +157,7 @@ const tree: MindNode = {
 也可以直接读取外部文件后再渲染（无需手写树）：
 
 ```tsx
-import { MindMap, parseMindmapFile } from "youdao-mindmap-vite";
+import { MindMap, parseMindmapFile } from "mindmap-vite";
 
 async function load(file: File) {
   const buf = await file.arrayBuffer();

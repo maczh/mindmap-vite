@@ -1,7 +1,7 @@
 from PIL import Image
 
 REF = "/home/macro/.workbuddy/clipboard-images/clipboard-2026-09-30T13-03-00-587Z-0239a89a.png"
-MINE = "/home/macro/WorkBuddy/2026-09-29-22-26-44/youdao-mindmap-vite/fb-shots/fishbone.png"
+MINE = "/home/macro/Work/js/src/github.com/maczh/mindmap-vite/fb-shots/fishbone.png"
 
 def load(p):
     im = Image.open(p).convert("RGB")

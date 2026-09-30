@@ -44,7 +44,7 @@ const root = mk("海鲜点餐小程序接口", [
 ]);
 root.isRoot = true;
 
-const dir = "/home/macro/WorkBuddy/2026-09-29-22-26-44/youdao-mindmap-vite/_verify";
+const dir = "/home/macro/Work/js/src/github.com/maczh/mindmap-vite/_verify";
 
 writeFileSync(`${dir}/hxdd.mm`, exportFreeMind(root));
 
