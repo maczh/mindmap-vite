@@ -48,6 +48,11 @@ export interface MindLink {
   sgn: 1 | -1;
   /** 预计算路径（时间轴 / 鱼骨图等复杂连线） */
   path?: string;
+  /**
+   * 是否画成直线（lineStyle = "straight"）。
+   * 由 layoutTree 在出口统一按 lineStyle 回填，各布局函数无需关心这个形态差异。
+   */
+  straight?: boolean;
 }
 
 export interface LayoutResult {
@@ -86,13 +91,33 @@ const BADGE_W = 17;
 const PREFIX_GAP = 3;
 /** 备注 / 链接小图标的占位宽度 */
 const RIGHT_BADGE_W = 15;
+/** 节点缩略图方框边长（渲染与布局共用，保证连线接入点与图片位置对齐） */
+export const IMAGE_BOX = 40;
+/** 缩略图与文字之间的间距 */
+const IMAGE_GAP = 6;
+/** 标签小色块高度与水平间距 */
+const TAG_PAD_X = 6;
+const TAG_GAP = 4;
 
-/** 文字左侧前缀（标记 + 优先级 + 进度 + 图标）总宽度 */
+import { latexWidth } from "./extras";
+
+/** 单个标签色块宽度（与渲染层 measureTagWidth 保持同口径） */
+export function measureTagWidth(text: string): number {
+  let w = 0;
+  for (const ch of text) w += /[一-龥＀-￯]/.test(ch) ? 11 : 6.2;
+  return w + TAG_PAD_X * 2;
+}
+
+/** 文字左侧前缀（标记 + 优先级 + 进度 + 图标 + 标签 + 缩略图）总宽度 */
 export function prefixWidth(node: MindNode): number {
   let w = (node.markers?.length ?? 0) * MARKER_W;
   if (node.priority) w += BADGE_W + PREFIX_GAP;
   if (node.progress != null) w += BADGE_W + PREFIX_GAP;
   w += (node.icons?.length ?? 0) * (BADGE_W + PREFIX_GAP);
+  if (node.tags?.length) {
+    w += node.tags.reduce((s, t) => s + measureTagWidth(t) + TAG_GAP, -TAG_GAP);
+  }
+  if (node.image) w += IMAGE_BOX + IMAGE_GAP;
   return w;
 }
 
@@ -135,11 +160,23 @@ export function nodeSize(node: MindNode, depth = 0, pad: SizePad = DEFAULT_PAD):
   const fontSize = node.style?.fontSize ?? defaultFontSizeForDepth(depth);
   const bold = !!node.style?.bold;
   const m = wrapText(node.title || " ", fontSize, Number.POSITIVE_INFINITY, bold);
+  // 公式节点：正文区是 LaTeX 而非纯文本，宽度改由 katex 实测结果决定
+  if (node.formula) {
+    const pref = prefixWidth(node);
+    const right = rightBadgeWidth(node);
+    const extra = pad.padX * 2 + pref + right;
+    const contentW = latexWidth(node.formula, fontSize);
+    const w = Math.max(contentW + extra, pad.minW + pref + right);
+    const h = Math.max(fontSize * 2 + pad.padY * 2, pad.minH);
+    return { w, h, lines: [], lineHeight: fontSize * 1.6, fontSize };
+  }
   const pref = prefixWidth(node);
   const right = rightBadgeWidth(node);
   const extra = pad.padX * 2 + pref + right;
   const w = Math.max(m.width + extra, pad.minW + pref + right);
-  const h = Math.max(m.height + pad.padY * 2, fontSize * 1.5 + pad.padY * 2, pad.minH);
+  let h = Math.max(m.height + pad.padY * 2, fontSize * 1.5 + pad.padY * 2, pad.minH);
+  // 带缩略图的节点至少给图片方框留足高度，否则缩略图会撑破节点盒子
+  if (node.image) h = Math.max(h, IMAGE_BOX + pad.padY * 2);
   return { w, h, lines: m.lines, lineHeight: m.lineHeight, fontSize };
 }
 
@@ -326,16 +363,17 @@ function layoutSide(
       const w = getW(n);
       let x: number;
       if (side === 1) {
-        // 右向：子节点在父节点右侧，按「父所在相对深度的最大宽度」推进，列宽仅限本分支。
-        // 同级兄弟共享同一左缘（列对齐），但只取本分支内该深度的最大宽，不会因其它分支的
-        // 宽节点而被推远。
-        x = rd === 0 ? rootEdge + H_GAP : (parent as PositionedNode).x + br.widths[rd - 1] + H_GAP;
+        // 右向：子节点紧贴「父节点右缘 + 层间距」，父右到哪里子就接哪里。
+        // 这里刻意**不用**本分支该深度的最大宽度（br.widths[rd-1]）当列宽：同一个父节点下
+        // 只要有一个宽兄弟（比如「预订规则：时段、最低消费、超时释放」），整列就会被推到最宽那个
+        // 兄弟的宽度之外，窄父节点（如「定金与退订」）的子节点因此被甩出两百多像素，
+        // 视觉上就是大片空白。按父宽推进既紧凑，也不会与同层节点重叠。
+        x = rd === 0 ? rootEdge + H_GAP : (parent as PositionedNode).x + (parent as PositionedNode).w + H_GAP;
       } else {
-        // 左向：按「右缘」对齐每一列 —— 子节点右缘 = 父右缘 - (父相对深度最大宽) - H_GAP。
-        // 必须用父相对深度的最大宽而非子自身宽来定位，否则当某个子节点比父还宽时，
-        // 其子树的右缘会越过父节点的左缘，与父节点（连同折叠按钮）水平重叠。
+        // 左向：子节点右缘 = 父左缘 - 层间距（父宽在这里自动约掉）。
+        // 同样不用最大宽度，否则一个宽兄弟会把整条左链往外推很远，正是「左右间距过大」的来源。
         if (rd === 0) x = rootEdge - H_GAP - w;
-        else x = (parent as PositionedNode).x + (parent as PositionedNode).w - br.widths[rd - 1] - H_GAP - w;
+        else x = (parent as PositionedNode).x - H_GAP - w;
       }
       const pos = mkNode(n, x, yTop.get(n.id)!, baseDepth + 1 + rd, "h", side, sizeOf(n));
       nodes.push(pos);
@@ -1027,6 +1065,7 @@ export function layoutTree(root: MindNode, opts: LayoutOptions): LayoutResult {
   // 注意：raw.root 已是 nodes 中的元素（各布局均把根节点放入 nodes），上面的循环已经平移过它，
   // 这里不能再平移一次，否则根节点会被重复偏移（minX<0 时尤其明显，会把思维导图/鱼骨图的根推出去压住分支）。
   for (const l of links) {
+    l.straight = lineStyle === "straight";
     if (l.path) {
       l.path = l.path.replace(/(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g, (_m, a: string, b: string) => {
         const x = parseFloat(a) - minX;

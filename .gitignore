@@ -7,3 +7,9 @@ node_modules/.tmp/
 
 # 本地环境安全删除守卫可能产生的临时文件
 tmp/
+
+# 回归产物
+verify/.tmp/
+verify/shots/
+verify/consumer/dist/
+verify/consumer/node_modules/

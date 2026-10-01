@@ -9,6 +9,12 @@ export type {
   MindNode,
   MindNodeShape,
   MindNodeStyle,
+  MindBorderStyle,
+  MindNodeImage,
+  MindNodeFrame,
+  MindGeneralization,
+  MindAssocLine,
+  MindMapApi,
   MindMapProps,
   MindMapConfig,
   BaseStyle,
@@ -16,6 +22,9 @@ export type {
   LineStyle,
   StructureType,
   TextDefaults,
+  LinkPattern,
+  LinkArrow,
+  LinkColorMode,
 } from "./types";
 export {
   DEFAULT_CONFIG,
@@ -23,6 +32,11 @@ export {
   FONT_FAMILIES,
   FONT_SIZES,
   SHAPES,
+  BORDER_STYLES,
+  BORDER_DASH,
+  LINK_PATTERNS,
+  LINK_ARROWS,
+  LINK_COLOR_MODES,
 } from "./types";
 
 export { layoutTree, nodeSize, textCenterX } from "./layout";
@@ -64,6 +78,7 @@ export * from "./tree";
 
 /* ------------------------- 文件读写（导入 / 导出） ------------------------- */
 export {
+  mapFileStructure,
   parseMindmapFile,
   exportTree,
   downloadBlob,

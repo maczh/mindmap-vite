@@ -1,6 +1,8 @@
 import {
+  forwardRef,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useReducer,
   useRef,
@@ -10,13 +12,14 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import type {
+  MindMapApi,
   MindMapConfig,
   MindMapProps,
   MindNode,
   MindNodeStyle,
   TextDefaults,
 } from "./types";
-import { DEFAULT_CONFIG, DEFAULT_TEXT } from "./types";
+import { BORDER_DASH, DEFAULT_CONFIG, DEFAULT_TEXT } from "./types";
 import {
   layoutTree,
   nodeSize,
@@ -29,6 +32,7 @@ import {
   type PositionedNode,
 } from "./layout";
 import { measureText } from "./text";
+import { ExtrasLayer, FormulaText, NodeImage, NodeTags } from "./extras";
 import {
   MARKER_MAP,
   NODE_ICON_MAP,
@@ -196,7 +200,7 @@ function underlineRail(n: PositionedNode): { left: number; right: number; y: num
 /** 生成连线路径（曲线 / 折线，兼容 h / v / diag 三种主轴） */
 function linkPath(l: MindLink): string {
   if (l.path) return l.path;
-  const { from, to, axis, sgn, curve } = l;
+  const { from, to, axis, sgn, curve, straight } = l;
   if (axis === "diag") {
     // 鱼骨图：子节点连线沿骨头方向（父→子中心）画直线，否则会落到水平主轴公式被画歪
     return `M ${from.centerX} ${from.centerY} L ${to.centerX} ${to.centerY}`;
@@ -210,6 +214,7 @@ function linkPath(l: MindLink): string {
       const my = (y1 + y2) / 2;
       return `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
     }
+    if (straight) return `M ${x1} ${y1} L ${x2} ${y2}`;
     const my = y1 + sgn * Math.max(14, Math.abs(y2 - y1) * 0.45);
     return `M ${x1} ${y1} L ${x1} ${my} L ${x2} ${my} L ${x2} ${y2}`;
   }
@@ -223,12 +228,114 @@ function linkPath(l: MindLink): string {
   const y1 = rf ? rf.y : from.y + from.h / 2;
   const x2 = rt ? (sgn === 1 ? rt.left : rt.right) : sgn === 1 ? to.x : to.x + to.w;
   const y2 = rt ? rt.y : to.y + to.h / 2;
+  // 直线：既不曲线化，也不拐肘，两端直接相连
+  if (straight) return `M ${x1} ${y1} L ${x2} ${y2}`;
   if (curve) {
     const mx = (x1 + x2) / 2;
     return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
   }
   const mx = x1 + sgn * Math.max(14, Math.abs(x2 - x1) * 0.45);
   return `M ${x1} ${y1} L ${mx} ${y1} L ${mx} ${y2} L ${x2} ${y2}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* 连线形态：直线 / 箭头 / 从粗到细（taper）                            */
+/*                                                                     */
+/* 连线路径只由 linkPath 产出，形如：                                   */
+/*   M p0 [ L p1        （4 个数，直线 / 折线首末段）                   */
+/*   M p0 C c1 c2 p1    （8 个数，曲线或折线的三段折点）                */
+/* 下面按这个固定格式解析出端点与切向，供箭头朝向与变宽填充带使用。     */
+/* ------------------------------------------------------------------ */
+
+interface LinkGeom {
+  p0: { x: number; y: number };
+  p1: { x: number; y: number };
+  /** 起点单位切向（由 p0 指向终点方向） */
+  v0: { x: number; y: number };
+  /** 终点单位切向 */
+  v1: { x: number; y: number };
+}
+
+function parseLinkPath(d: string): LinkGeom | null {
+  const nums = d.match(/-?\d+(?:\.\d+)?/g)?.map(Number);
+  if (!nums || nums.length < 4) return null;
+  const cubic = nums.length >= 8;
+  const at = (i: number) => ({ x: nums[i * 2], y: nums[i * 2 + 1] });
+  const p0 = at(0);
+  const p1 = cubic ? at(3) : at(1);
+  const unit = (ax: number, ay: number, bx: number, by: number) => {
+    const L = Math.hypot(bx - ax, by - ay) || 1;
+    return { x: (bx - ax) / L, y: (by - ay) / L };
+  };
+  // 三次贝塞尔端点切向由「控制点 - 端点」给出；折线（8 个数但非 C）用相邻折点近似，
+  // 结果一样是最后一段 / 第一段的方向，箭头朝向仍正确。
+  const v0 = cubic ? unit(p0.x, p0.y, at(1).x, at(1).y) : unit(p0.x, p0.y, p1.x, p1.y);
+  const v1 = cubic ? unit(at(2).x, at(2).y, p1.x, p1.y) : unit(p0.x, p0.y, p1.x, p1.y);
+  return { p0, p1, v0, v1 };
+}
+
+/**
+ * 「从粗到细」两端宽度（产品口径，固定值不随 linkWidth 浮动）：
+ * 粗端 8（父端），细端 2（子端）。改这两个即可整体调节 taper 的落差。
+ */
+const TAPER_THICK_W = 8
+const TAPER_THIN_W = 2
+
+/**
+ * 把连线路径变成「从粗到细」的填充带（两端宽度线性插值）。
+ * 变宽只能靠填充多边形表达 —— 描边加 dash 会退化成虚线，所以 taper 与虚线互斥。
+ */
+function taperFillPath(d: string, w0: number, w1: number): string | null {
+  const nums = d.match(/-?\d+(?:\.\d+)?/g)?.map(Number);
+  if (!nums || nums.length < 4) return null;
+  const cubic = nums.length >= 8;
+  const p0 = { x: nums[0], y: nums[1] };
+  const p1 = cubic ? { x: nums[6], y: nums[7] } : { x: nums[2], y: nums[3] };
+  const c1 = cubic ? { x: nums[2], y: nums[3] } : p0;
+  const c2 = cubic ? { x: nums[4], y: nums[5] } : p1;
+  const N = 22;
+  const pts: { x: number; y: number }[] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const u = 1 - t;
+    let x: number, y: number;
+    if (cubic) {
+      x = u * u * u * p0.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * p1.x;
+      y = u * u * u * p0.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * p1.y;
+    } else {
+      x = p0.x + (p1.x - p0.x) * t;
+      y = p0.y + (p1.y - p0.y) * t;
+    }
+    pts.push({ x, y });
+  }
+  const fmt = (p: { x: number; y: number }) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`;
+  const left: string[] = [];
+  const right: string[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[Math.max(0, i - 1)];
+    const b = pts[Math.min(pts.length - 1, i + 1)];
+    let tx = b.x - a.x;
+    let ty = b.y - a.y;
+    const L = Math.hypot(tx, ty) || 1;
+    tx /= L;
+    ty /= L;
+    const w = w0 + (w1 - w0) * (i / N);
+    left.push(fmt({ x: pts[i].x - ty * w * 0.5, y: pts[i].y + tx * w * 0.5 }));
+    right.push(fmt({ x: pts[i].x + ty * w * 0.5, y: pts[i].y - tx * w * 0.5 }));
+  }
+  return `M ${left.join(" L ")} L ${right.reverse().join(" L ")} Z`;
+}
+
+/**
+ * 箭头三角形：`tip` 为尖端位置，`dir` 为尖端所指方向（单位向量）。
+ * inward 的尖端在父端且朝父（dir = -v0），outward 的尖端在子端且朝子（dir = +v1）。
+ */
+function arrowTri(tip: { x: number; y: number }, dir: { x: number; y: number }, size: number, halfW: number) {
+  const baseX = tip.x - dir.x * size;
+  const baseY = tip.y - dir.y * size;
+  const px = -dir.y * halfW;
+  const py = dir.x * halfW;
+  return `${tip.x.toFixed(2)},${tip.y.toFixed(2)} ${(baseX + px).toFixed(2)},${(baseY + py).toFixed(2)} ${(baseX - px).toFixed(2)},${(baseY - py).toFixed(2)}`;
 }
 
 /** 进度饼图扇区路径（fraction 0~1，从 12 点方向顺时针） */
@@ -244,17 +351,22 @@ function piePath(fraction: number): string {
   return `M 0 0 L 0 ${-r} A ${r} ${r} 0 ${large} 1 ${x.toFixed(2)} ${y.toFixed(2)} Z`;
 }
 
-export function MindMap({
-  data,
-  width = "100%",
-  height = "100%",
-  className,
-  fitOnMount = true,
-  editable = true,
-  showToolbar = true,
-  onChange,
-  defaultConfig,
-}: MindMapProps) {
+export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
+  {
+    data,
+    width = "100%",
+    height = "100%",
+    className,
+    fitOnMount = true,
+    editable = true,
+    showToolbar = true,
+    onChange,
+    defaultConfig,
+    onScaleChange,
+    onSelectChange,
+  },
+  ref
+) {
   const [doc, dispatch] = useReducer(docReducer, undefined, () => ({
     tree: data,
     past: [] as MindNode[],
@@ -337,9 +449,37 @@ export function MindMap({
   /* 右键环形菜单锚定的节点 */
   const [menuId, setMenuId] = useState<string | null>(null);
 
+  /* -------------------- 运行期模式（可由宿主通过 ref 切换） -------------------- */
+  /** 只读 / 编辑：props.editable 只作为初值，运行期切换走这里 */
+  const [mode, setModeState] = useState<"edit" | "readonly">(editable ? "edit" : "readonly");
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  /** 运行期「可编辑」判定：props.editable 只定初值，运行期切换走 mode */
+  const editableNow = mode === "edit";
+  /** 滚轮行为：zoom 缩放 / move 平移 */
+  const [wheelAction, setWheelAction] = useState<"zoom" | "move">("zoom");
+  const wheelActionRef = useRef(wheelAction);
+  wheelActionRef.current = wheelAction;
+  /** 自由拖拽开关：关闭后禁止拖动节点改层级（仅保留选中 / 编辑） */
+  const [freeDrag, setFreeDrag] = useState(false);
+  const freeDragRef = useRef(freeDrag);
+  freeDragRef.current = freeDrag;
+
   /** 供 window 级监听读取当前视图变换（避免闭包捕获旧值） */
   const transformRef = useRef(transform);
   transformRef.current = transform;
+  /** 缩放比例变化回调（宿主缩放条用） */
+  const scaleChangeRef = useRef(onScaleChange);
+  scaleChangeRef.current = onScaleChange;
+  useEffect(() => {
+    scaleChangeRef.current?.(transform.scale);
+  }, [transform.scale]);
+  /** 选中变化上报宿主（工具条禁用态 / 节点样式面板回显） */
+  const selectChangeRef = useRef(onSelectChange);
+  selectChangeRef.current = onSelectChange;
+  useEffect(() => {
+    selectChangeRef.current?.(doc.selectedId);
+  }, [doc.selectedId]);
 
   const theme = THEME_MAP.get(config.themeId) ?? THEME_LIST[0];
   const base = config.base ?? {};
@@ -358,6 +498,8 @@ export function MindMap({
   );
 
   const linkWidth = base.linkWidth ?? theme.linkWidth;
+  /** 连线配色：auto 彩色（各分支主题色）/ single 单色（linkColor 统一） */
+  const linkColorMode = base.linkColorMode ?? "auto";
   const radius = base.radius ?? theme.radius;
   const strokeWidth = base.strokeWidth ?? theme.strokeWidth;
   const canvasBg = base.background ?? theme.background;
@@ -441,6 +583,11 @@ export function MindMap({
     const handler = (e: WheelEvent) => {
       e.preventDefault();
       setMenuId(null);
+      // 滚轮行为可切到「平移画布」（宿主设置面板）
+      if (wheelActionRef.current === "move") {
+        setTransform((t) => ({ ...t, tx: t.tx - e.deltaY, ty: t.ty - e.deltaX }));
+        return;
+      }
       const rect = el.getBoundingClientRect();
       const px = e.clientX - rect.left;
       const py = e.clientY - rect.top;
@@ -518,35 +665,35 @@ export function MindMap({
   );
 
   const addChild = useCallback(() => {
-    if (!editable) return;
+    if (!editableNow) return;
     const res = opAddChild(treeRef.current, doc.selectedId ?? doc.tree.id);
     commitAndEdit(res, "分支主题");
-  }, [editable, doc.selectedId, doc.tree.id, commitAndEdit]);
+  }, [editableNow, doc.selectedId, doc.tree.id, commitAndEdit]);
 
   const addSibling = useCallback(
     (before: boolean) => {
-      if (!editable || !doc.selectedId) return;
+      if (!editableNow || !doc.selectedId) return;
       const res = opAddSibling(treeRef.current, doc.selectedId, before);
       commitAndEdit(res, "分支主题");
     },
-    [editable, doc.selectedId, commitAndEdit]
+    [editableNow, doc.selectedId, commitAndEdit]
   );
 
   const addParent = useCallback(() => {
-    if (!editable || !doc.selectedId) return;
+    if (!editableNow || !doc.selectedId) return;
     const res = opAddParent(treeRef.current, doc.selectedId);
     commitAndEdit(res, "分支主题");
-  }, [editable, doc.selectedId, commitAndEdit]);
+  }, [editableNow, doc.selectedId, commitAndEdit]);
 
   const outdent = useCallback(() => {
-    if (!editable || !doc.selectedId) return;
+    if (!editableNow || !doc.selectedId) return;
     applyOp(opOutdent(treeRef.current, doc.selectedId));
-  }, [applyOp, doc.selectedId, editable]);
+  }, [applyOp, doc.selectedId, editableNow]);
 
   /** 同级内前移 / 后移（Alt+↑ / Alt+↓，同时供右键菜单使用） */
   const moveSibling = useCallback(
     (dir: -1 | 1) => {
-      if (!editable || !doc.selectedId) return;
+      if (!editableNow || !doc.selectedId) return;
       const id = doc.selectedId;
       if (id === doc.tree.id) return;
       const hit = findParent(treeRef.current, id);
@@ -558,17 +705,17 @@ export function MindMap({
         opMove(treeRef.current, id, siblings[at].id, dir === -1 ? "before" : "after")
       );
     },
-    [applyOp, doc.selectedId, doc.tree.id, editable]
+    [applyOp, doc.selectedId, doc.tree.id, editableNow]
   );
 
   const removeNode = useCallback(() => {
-    if (!editable || !doc.selectedId) return;
+    if (!editableNow || !doc.selectedId) return;
     if (doc.selectedId === doc.tree.id) {
       showToast("根节点不可删除", "err");
       return;
     }
     applyOp(opDelete(treeRef.current, doc.selectedId));
-  }, [applyOp, doc.selectedId, doc.tree.id, editable, showToast]);
+  }, [applyOp, doc.selectedId, doc.tree.id, editableNow, showToast]);
 
   const toggleCollapse = useCallback(
     (id?: string) => {
@@ -589,7 +736,7 @@ export function MindMap({
           fontFamily: patch.fontFamily ?? d.fontFamily,
         }));
       }
-      if (!editable) return;
+      if (!editableNow) return;
       const id = doc.selectedId;
       if (!id || !findNode(treeRef.current, id)) {
         showToast("请先点击选中一个节点", "err");
@@ -600,12 +747,12 @@ export function MindMap({
         tree: opUpdate(treeRef.current, id, {}, patch),
       });
     },
-    [doc.selectedId, editable, showToast]
+    [doc.selectedId, editableNow, showToast]
   );
 
   const toggleMarker = useCallback(
     (markerId: string) => {
-      if (!editable) return;
+      if (!editableNow) return;
       if (!selectedNode) {
         showToast("请先点击选中一个节点", "err");
         return;
@@ -621,13 +768,13 @@ export function MindMap({
         }),
       });
     },
-    [editable, selectedNode, showToast]
+    [editableNow, selectedNode, showToast]
   );
 
   /** 设置选中节点的优先级（1-9） */
   const setPriority = useCallback(
     (value: number | undefined) => {
-      if (!editable) return;
+      if (!editableNow) return;
       if (!selectedNode) {
         showToast("请先点击选中一个节点", "err");
         return;
@@ -639,13 +786,13 @@ export function MindMap({
         }),
       });
     },
-    [editable, selectedNode, showToast]
+    [editableNow, selectedNode, showToast]
   );
 
   /** 设置选中节点的进度（0-10，每级 10%） */
   const setProgress = useCallback(
     (value: number | undefined) => {
-      if (!editable) return;
+      if (!editableNow) return;
       if (!selectedNode) {
         showToast("请先点击选中一个节点", "err");
         return;
@@ -657,13 +804,13 @@ export function MindMap({
         }),
       });
     },
-    [editable, selectedNode, showToast]
+    [editableNow, selectedNode, showToast]
   );
 
   /** 切换选中节点的图标前缀 */
   const toggleIcon = useCallback(
     (iconId: string) => {
-      if (!editable) return;
+      if (!editableNow) return;
       if (!selectedNode) {
         showToast("请先点击选中一个节点", "err");
         return;
@@ -679,16 +826,16 @@ export function MindMap({
         }),
       });
     },
-    [editable, selectedNode, showToast]
+    [editableNow, selectedNode, showToast]
   );
 
   const startEdit = useCallback(
     (node: MindNode) => {
-      if (!editable) return;
+      if (!editableNow) return;
       dispatch({ type: "select", id: node.id });
       setEditing({ id: node.id, value: node.title });
     },
-    [editable]
+    [editableNow]
   );
 
   const endEdit = useCallback((next: "child" | "sibling" | null) => {
@@ -1050,7 +1197,8 @@ export function MindMap({
 
   const beginNodeDrag = useCallback(
     (e: ReactMouseEvent<SVGGElement>, nodeId: string) => {
-      if (!editable || e.button !== 0) return;
+      if (!editableNow || e.button !== 0) return;
+      if (!freeDragRef.current) return; // 关闭自由拖拽后不接管节点拖动
       if (nodeId === doc.tree.id) return; // 根节点不可拖动
       e.stopPropagation();
       focusStage();
@@ -1061,7 +1209,7 @@ export function MindMap({
         active: false,
       };
     },
-    [doc.tree.id, editable, focusStage]
+    [doc.tree.id, editableNow, focusStage]
   );
 
   // 拖拽期间在 window 上监听，指针移出画布也不会中断
@@ -1183,6 +1331,231 @@ export function MindMap({
 
   const editingNode = editing ? findNode(doc.tree, editing.id) : null;
 
+  /** 平铺的节点盒子（ExtrasLayer 只需要 id + 几何） */
+  const layoutNodes = useMemo(
+    () => layout.nodes.map((p) => ({ id: p.node.id, x: p.x, y: p.y, w: p.w, h: p.h })),
+    [layout.nodes]
+  );
+
+  /* --------------------- 命令式 API 依赖的原子操作 --------------------- */
+
+  /** 给选中节点打一次数据补丁（note / link / image / tags / formula / frame / generalization） */
+  const setNodeField = useCallback(
+    (patch: Record<string, unknown>) => {
+      const id = doc.selectedId;
+      if (!editableNow) return;
+      if (!id || !findNode(treeRef.current, id)) {
+        showToast("请先点击选中一个节点", "err");
+        return;
+      }
+      dispatch({ type: "commit", tree: opUpdate(treeRef.current, id, patch) });
+    },
+    [doc.selectedId, editableNow, showToast]
+  );
+
+  /** 按深度批量设置收起状态：depth >= d 的节点收起（d 为极大值时全展开） */
+  const setCollapsedBelow = useCallback((d: number) => {
+    const walk = (n: MindNode, depth: number): MindNode => ({
+      ...n,
+      collapsed: depth >= d ? true : n.collapsed,
+      children: n.children.map((c) => walk(c, depth + 1)),
+    });
+    dispatch({ type: "commit", tree: walk(treeRef.current, 0) });
+  }, []);
+
+  const expandAll = useCallback(() => setCollapsedBelow(Number.MAX_SAFE_INTEGER), [setCollapsedBelow]);
+  const collapseToDepth = useCallback((d: number) => setCollapsedBelow(d), [setCollapsedBelow]);
+
+  /* --------------------------- 对外命令式 API --------------------------- */
+  /*
+   * 宿主（haiku-wiki）沿用原有浮动工具条，需要像操作 simple-mind-map 实例那样
+   * 驱动画布；这里把内部 reducer 操作提升为命令式接口，宿主只拿 ref 调用即可。
+   */
+  useImperativeHandle(
+    ref,
+    () => ({
+      /* 数据 */
+      getTree: () => treeRef.current,
+      setTree: (tree) => dispatch({ type: "reset", tree }),
+
+      /* 撤销 / 重做 */
+      undo: () => dispatch({ type: "undo" }),
+      redo: () => dispatch({ type: "redo" }),
+      canUndo: () => doc.past.length > 0,
+      canRedo: () => doc.future.length > 0,
+
+      /* 结构操作 */
+      addChild,
+      addSibling,
+      addParent,
+      removeNode,
+      outdent,
+      select: (id) => {
+        if (!id) {
+          dispatch({ type: "select", id: null });
+          return false;
+        }
+        if (!findNode(treeRef.current, id)) return false;
+        dispatch({ type: "select", id });
+        return true;
+      },
+      getSelectedId: () => doc.selectedId,
+      hasSelection: () => Boolean(doc.selectedId),
+
+      /* 节点样式 / 新建节点文字默认值 */
+      setNodeStyle: (patch) => applyStyle(patch),
+      getNodeStyle: () => findNode(treeRef.current, doc.selectedId ?? "")?.style ?? {},
+      clearNodeStyles: () => {
+        const id = doc.selectedId;
+        if (!id) return;
+        dispatch({
+          type: "commit",
+          tree: opUpdate(treeRef.current, id, {}, { shape: undefined }),
+        });
+      },
+      getTextDefaults: () => textDefaults,
+      setTextDefaults: (patch) => setTextDefaults((d) => ({ ...d, ...patch })),
+
+      /* 配置（主题 / 结构 / 连线 / 基础样式）。
+       * ⚠️ getter 必须走 configRef 而不是闭包里的 `config`：本 handle 的依赖数组里没有
+       * config，闭包会一直指向首次渲染那份 —— 宿主算「基础样式全量覆盖」时
+       * （`{...api.getBase(), ...patch}`）就会拿到空的旧 base，每次改一项都把之前设的
+       * 连线线型 / 箭头 / 边框线型全部抹掉，看上去就是「样式存不下来」。
+       * 底下 getScale / getView 同理（transform 对象每次平移都换引用）。 */
+      getConfig: () => configRef.current,
+      setConfig: (patch) => setConfig((c) => ({ ...c, ...patch })),
+      setStructure: (s) => setConfig((c) => ({ ...c, structure: s })),
+      setLineStyle: (s) => setConfig((c) => ({ ...c, lineStyle: s })),
+      setThemeId: (t) => setConfig((c) => ({ ...c, themeId: t })),
+      setBase: (patch) => setConfig((c) => ({ ...c, base: { ...c.base, ...patch } })),
+      getBase: () => configRef.current.base ?? {},
+
+      /* 运行期模式 */
+      getMode: () => mode,
+      setMode: (m) => setModeState(m),
+      setWheelAction: (a) => setWheelAction(a),
+      setFreeDrag: (v) => setFreeDrag(v),
+
+      /* 视图 */
+      zoomIn: () => zoomBy(1.2),
+      zoomOut: () => zoomBy(1 / 1.2),
+      fitView: fit,
+      resetView: () => setTransform({ scale: 1, tx: 0, ty: 0 }),
+      centerRoot: () => {
+        const el = stageRef.current;
+        const root = layout.rootPos;
+        if (!el || !root) return;
+        const s = transform.scale;
+        setTransform({
+          scale: s,
+          tx: el.clientWidth / 2 - (root.x + root.w / 2) * s,
+          ty: el.clientHeight / 2 - (root.y + root.h / 2) * s,
+        });
+      },
+      getScale: () => transformRef.current.scale,
+      getView: () => ({
+        scale: transformRef.current.scale,
+        tx: transformRef.current.tx,
+        ty: transformRef.current.ty,
+      }),
+      setView: (v) =>
+        setTransform((t) => ({
+          scale: v.scale === undefined ? t.scale : Math.min(Math.max(v.scale, MIN_SCALE), MAX_SCALE),
+          tx: v.tx ?? t.tx,
+          ty: v.ty ?? t.ty,
+        })),
+
+      /* 展开 / 收起 */
+      expandAll,
+      collapseToDepth,
+      toggleCollapse,
+
+      /* 节点补充属性（simple-mind-map 迁移补齐项） */
+      setNote: (text) => setNodeField({ note: text || undefined }),
+      getNote: () => findNode(treeRef.current, doc.selectedId ?? "")?.note ?? "",
+      setLink: (url) => setNodeField({ link: url || undefined }),
+      getLink: () => findNode(treeRef.current, doc.selectedId ?? "")?.link ?? "",
+      setImage: (img) => setNodeField({ image: img ?? undefined }),
+      getImage: () => findNode(treeRef.current, doc.selectedId ?? "")?.image,
+      setTags: (tags) => setNodeField({ tags: tags?.length ? tags : undefined }),
+      getTags: () => findNode(treeRef.current, doc.selectedId ?? "")?.tags ?? [],
+      setFormula: (f) => setNodeField({ formula: f || undefined }),
+      getFormula: () => findNode(treeRef.current, doc.selectedId ?? "")?.formula ?? "",
+      setFrame: (f) => setNodeField({ frame: f ?? undefined }),
+      getFrame: () => findNode(treeRef.current, doc.selectedId ?? "")?.frame,
+      setGeneralization: (g) => setNodeField({ generalization: g ?? undefined }),
+      getGeneralization: () => findNode(treeRef.current, doc.selectedId ?? "")?.generalization,
+
+      /* 优先级 / 进度 / 图标（宿主顶部工具条面板用） */
+      getPriority: () => findNode(treeRef.current, doc.selectedId ?? "")?.priority,
+      setPriority,
+      getProgress: () => findNode(treeRef.current, doc.selectedId ?? "")?.progress,
+      setProgress,
+      getIcons: () => findNode(treeRef.current, doc.selectedId ?? "")?.icons ?? [],
+      toggleIcon,
+
+      /* 关联线（统一挂在根节点上） */
+      addAssocLine: (fromId, toId, label) => {
+        if (!fromId || !toId || fromId === toId) return;
+        const cur = treeRef.current.assocLines ?? [];
+        if (cur.some((l) => l.fromId === fromId && l.toId === toId)) return;
+        dispatch({
+          type: "commit",
+          tree: opUpdate(treeRef.current, treeRef.current.id, {
+            assocLines: [
+              ...cur,
+              { id: `assoc-${Date.now().toString(36)}`, fromId, toId, label: label || undefined },
+            ],
+          }),
+        });
+      },
+      removeAssocLine: (id) =>
+        dispatch({
+          type: "commit",
+          tree: opUpdate(treeRef.current, treeRef.current.id, {
+            assocLines: (treeRef.current.assocLines ?? []).filter((l) => l.id !== id),
+          }),
+        }),
+      getAssocLines: () => treeRef.current.assocLines ?? [],
+
+      /* 导出 */
+      getSvg: () => buildSvgPayload(),
+      exportPng: () => handleExport("png"),
+      exportAs: (f) => handleExport(f as ExportFormat),
+
+      /* 节点包围盒：宿主做浮层 / 定位时用 */
+      getNodeBoxes: () => {
+        const m: Record<string, { x: number; y: number; w: number; h: number }> = {};
+        for (const p of layout.nodes) m[p.node.id] = { x: p.x, y: p.y, w: p.w, h: p.h };
+        return m;
+      },
+    }),
+    [
+      addChild,
+      addParent,
+      addSibling,
+      applyStyle,
+      buildSvgPayload,
+      collapseToDepth,
+      doc.future.length,
+      doc.past.length,
+      doc.selectedId,
+      expandAll,
+      fit,
+      handleExport,
+      layout.nodes,
+      mode,
+      outdent,
+      removeNode,
+      setCollapsedBelow,
+      setNodeField,
+      textDefaults,
+      treeRef,
+      transform.scale,
+      toggleCollapse,
+    ]
+  );
+
   return (
     <div className={`mm-wrap ${className ?? ""}`} style={{ width, height }}>
       {showToolbar && (
@@ -1225,9 +1598,9 @@ export function MindMap({
 
       <div
         ref={stageRef}
-        className={`mm-stage ${editable ? "is-editable" : ""}`}
+        className={`mm-stage ${editableNow ? "is-editableNow" : ""}`}
         style={{ background: canvasBg }}
-        tabIndex={editable ? 0 : -1}
+        tabIndex={editableNow ? 0 : -1}
         onKeyDown={onKeyDown}
         onMouseDown={onStageMouseDown}
         onMouseMove={onStageMouseMove}
@@ -1244,17 +1617,53 @@ export function MindMap({
             className="mm-root"
             transform={`translate(${transform.tx},${transform.ty}) scale(${transform.scale})`}
           >
-            {layout.links.map((l) => (
-              <path
-                key={`${l.from.node.id}->${l.to.node.id}`}
-                d={linkPath(l)}
-                fill="none"
-                stroke={l.color}
-                strokeWidth={linkWidth}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ))}
+            {layout.links.map((l) => {
+              const d = linkPath(l);
+              // 单色模式：忽略各分支的主题色，整张画布统一用 linkColor
+              const color = linkColorMode === "single" ? linkColor : l.color ?? linkColor;
+              const pattern = base.linkPattern ?? "solid";
+              const arrow = base.linkArrow ?? "none";
+              const geo = arrow === "none" ? null : parseLinkPath(d);
+              // 从粗到细：变宽只能靠填充带表达（描边加 dash 会退化成虚线），与虚线互斥
+              const taper =
+                pattern === "taper" ? taperFillPath(d, TAPER_THICK_W, TAPER_THIN_W) : null;
+              // 箭头跟着「所在端」的线宽：taper 父端 8 / 子端 2，否则用 linkWidth 派生
+              const arrowW =
+                pattern === "taper" ? (arrow === "inward" ? TAPER_THICK_W : TAPER_THIN_W) : linkWidth;
+              const arrowLen = arrowW * 3 + 4
+              const arrowBase = arrowW * 1.7 + 1
+              return (
+                <g key={`${l.from.node.id}->${l.to.node.id}`} className="mm-link">
+                  {taper ? (
+                    <path d={taper} fill={color} stroke="none" />
+                  ) : (
+                    <path
+                      d={d}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth={linkWidth}
+                      strokeDasharray={pattern === "dashed" ? "7 5" : undefined}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  )}
+                  {geo && (
+                    <polygon
+                      points={
+                        // 向内：尖端贴在父端并朝父节点（朝画布中心收）；向外：尖端贴在子端朝外
+                        arrow === "inward"
+                          ? arrowTri(geo.p0, { x: -geo.v0.x, y: -geo.v0.y }, arrowLen, arrowBase)
+                          : arrowTri(geo.p1, geo.v1, arrowLen, arrowBase)
+                      }
+                      fill={color}
+                    />
+                  )}
+                </g>
+              );
+            })}
+
+            {/* 关联线 / 外框 / 概要：画在连线之上、节点之下 */}
+            <ExtrasLayer root={doc.tree} nodes={layoutNodes} />
 
             {layout.nodes.map((p) => {
               const node = p.node;
@@ -1278,8 +1687,11 @@ export function MindMap({
               const isTimeline = config.structure === "timeline";
               const isFishbone = config.structure === "fishbone";
               const railTextW = isUnderline && !isTimeline && !isFishbone ? underlineTextWidth(p) : 0;
+              // 圆角：节点显式 borderRadius 优先（按宽高一半内敛），否则按形状 / 主题基准
               const rx =
-                shape === "capsule"
+                eff.borderRadius != null
+                  ? Math.min(eff.borderRadius, p.w / 2, p.h / 2)
+                  : shape === "capsule"
                   ? p.h / 2
                   : shape === "rect" || shape === "none"
                   ? 2
@@ -1310,6 +1722,8 @@ export function MindMap({
                   : isRoot && showRect
                   ? base.nodeText ?? theme.rootText
                   : base.nodeText ?? theme.nodeText);
+              // 节点边框线型：实线 / 虚线 / 点线 / 点划线（根节点与带框节点生效）
+              const dash = BORDER_DASH[eff.borderStyle ?? "solid"];
               const isSelected = node.id === doc.selectedId && !editing;
               const hasKids = node.children.length > 0;
               const isCollapsed = Boolean(node.collapsed);
@@ -1333,7 +1747,7 @@ export function MindMap({
                   key={node.id}
                   className="mm-node"
                   transform={`translate(${p.x},${p.y})${p.rot ? ` rotate(${p.rot} ${p.w / 2} ${p.h / 2})` : ""}`}
-                  style={{ cursor: editable ? "pointer" : "default" }}
+                  style={{ cursor: editableNow ? "pointer" : "default" }}
                   opacity={nodeDrag?.id === node.id ? 0.32 : 1}
                   onMouseDown={(e) => beginNodeDrag(e, node.id)}
                   onClick={(e) => {
@@ -1345,7 +1759,7 @@ export function MindMap({
                   onContextMenu={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    if (!editable) return;
+                    if (!editableNow) return;
                     focusStage();
                     dispatch({ type: "select", id: node.id });
                     setMenuId(node.id);
@@ -1360,7 +1774,9 @@ export function MindMap({
                     {node.note ? `\n备注：${node.note}` : ""}
                     {node.link ? `\n链接：${node.link}` : ""}
                   </title>
-                  {isSelected && (
+                  {/* 选中环是编辑态的拖拽/工具栏交互提示：阅读 / 分享 / H5 三态下
+                      reducer 仍会默认选中根节点，若照画就会出现一圈蓝虚线选中框。 */}
+                  {isSelected && editableNow && (
                     <rect
                       className="mm-ui-only"
                       x={-4}
@@ -1387,10 +1803,11 @@ export function MindMap({
                       strokeWidth={
                         noBorder
                           ? 0
-                          : isSelected
+                          : isSelected && editableNow
                           ? strokeWidth + 0.6
                           : strokeWidth
                       }
+                      strokeDasharray={dash}
                     />
                   )}
 
@@ -1420,24 +1837,34 @@ export function MindMap({
                     />
                   )}
 
-                  {sized.lines.map((line, i) => (
-                    <text
-                      key={i}
-                      className="mm-text"
-                      x={isUnderline ? underTextX : textX}
-                      y={blockTop + i * lineH}
-                      fill={textColor}
+                  {node.formula ? (
+                    <FormulaText
+                      latex={node.formula}
+                      cx={textX}
+                      cy={p.h / 2}
                       fontSize={fontSize}
-                      fontFamily={fontFamily}
-                      fontWeight={eff.bold ? 700 : 400}
-                      fontStyle={eff.italic ? "italic" : undefined}
-                      style={{ textDecoration: decoration } as CSSProperties}
-                      textAnchor={isUnderline ? "start" : "middle"}
-                      dominantBaseline="middle"
-                    >
-                      {line === "" ? " " : line}
-                    </text>
-                  ))}
+                      boxW={Math.max(24, p.w - prefixWidth(node) * 2)}
+                    />
+                  ) : (
+                    sized.lines.map((line, i) => (
+                      <text
+                        key={i}
+                        className="mm-text"
+                        x={isUnderline ? underTextX : textX}
+                        y={blockTop + i * lineH}
+                        fill={textColor}
+                        fontSize={fontSize}
+                        fontFamily={fontFamily}
+                        fontWeight={eff.bold ? 700 : 400}
+                        fontStyle={eff.italic ? "italic" : undefined}
+                        style={{ textDecoration: decoration } as CSSProperties}
+                        textAnchor={isUnderline ? "start" : "middle"}
+                        dominantBaseline="middle"
+                      >
+                        {line === "" ? " " : line}
+                      </text>
+                    ))
+                  )}
 
                   {/* 标记图标 */}
                   {(node.markers ?? []).map((mid, i) => {
@@ -1511,6 +1938,20 @@ export function MindMap({
                     );
                   })}
                   {px += (node.icons?.length ?? 0) * 20}
+
+                  {/* 标签色块（simple-mind-map 迁移补齐） */}
+                  {!!node.tags?.length && (
+                    <NodeTags
+                      tags={node.tags}
+                      cx={px + (node.tags.length * 20) / 2}
+                      cy={p.h / 2}
+                      fontSize={fontSize}
+                    />
+                  )}
+                  {px += (node.tags?.length ?? 0) * 20}
+
+                  {/* 节点缩略图（simple-mind-map 迁移补齐） */}
+                  {node.image && <NodeImage url={node.image.url} title={node.image.title} h={p.h} />}
 
                   {/* 备注 / 链接小标记 */}
                   {node.note && (
@@ -1855,7 +2296,7 @@ export function MindMap({
           )}
         </div>
 
-        {!selectedNode && editable && (
+        {!selectedNode && editableNow && (
           <div className="mm-hint">
             点击选中 · 双击编辑 · 右键功能菜单 · 拖动节点可排序 / 挂接
           </div>
@@ -1884,6 +2325,6 @@ export function MindMap({
       />
     </div>
   );
-}
+});
 
 export default MindMap;

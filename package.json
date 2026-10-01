@@ -1,32 +1,53 @@
 {
   "name": "mindmap-vite",
   "private": false,
-  "version": "0.2.0",
+  "version": "1.0.0",
   "type": "module",
-  "description": "将有道云笔记思维导图抓取并渲染为可复用的 Vite + React 组件",
-  "main": "dist-lib/mindmap-vite.umd.js",
-  "module": "dist-lib/mindmap-vite.es.js",
-  "types": "dist-lib/components/MindMap/index.d.ts",
+  "description": "可编辑思维导图组件（Vite + React）：7 种结构 / 多主题 / 线型箭头 / 节点补齐项（缩略图·标签·LaTeX 公式·外框·概要·关联线），支持 .km/.mm/.smm/.xmind/.json 导入导出",
+  "keywords": [
+    "mindmap",
+    "mind-map",
+    "思维导图",
+    "react",
+    "vite",
+    "component",
+    "svg"
+  ],
+  "license": "MIT",
+  "main": "./dist-lib/mindmap-vite.umd.js",
+  "module": "./dist-lib/mindmap-vite.es.js",
+  "types": "./dist-lib/components/MindMap/index.d.ts",
+  "style": "./dist-lib/style.css",
   "exports": {
     ".": {
       "types": "./dist-lib/components/MindMap/index.d.ts",
       "import": "./dist-lib/mindmap-vite.es.js",
       "require": "./dist-lib/mindmap-vite.umd.js"
-    }
+    },
+    "./style.css": "./dist-lib/style.css",
+    "./dist-lib/*": "./dist-lib/*"
   },
   "files": [
-    "dist-lib"
+    "dist-lib",
+    "README.md"
+  ],
+  "sideEffects": [
+    "./dist-lib/style.css"
   ],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:lib": "vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json",
+    "verify": "bash verify/run.sh",
     "preview": "vite preview"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
   },
   "dependencies": {
     "jszip": "^3.10.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "katex": "^0.16.11"
   },
   "devDependencies": {
     "@types/react": "^18.3.5",
