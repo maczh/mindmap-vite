@@ -20,6 +20,17 @@ import type {
   TextDefaults,
 } from "./types";
 import { BORDER_DASH, DEFAULT_CONFIG, DEFAULT_TEXT } from "./types";
+import type {
+  BranchGeom,
+} from "./branchstyle";
+import { branchPath } from "./branchstyle";
+import {
+  sketchArrowHead,
+  sketchCurve,
+  sketchEllipse,
+  sketchLine,
+  sketchRect,
+} from "./handdrawn";
 import {
   layoutTree,
   nodeSize,
@@ -106,14 +117,29 @@ interface DocState {
   past: MindNode[];
   future: MindNode[];
   selectedId: string | null;
+  /**
+   * 多选集合（Ctrl/Cmd + 左键点选）。
+   * 约定：`selectedId` 始终是集合里的「主选中项」（最后点中的那个），
+   * 节点级工具栏功能作用于它；`selectedIds` 为多选聚合功能（关联线 / 概要 / 分组框）提供输入。
+   */
+  selectedIds: string[];
 }
 
 type DocAction =
   | { type: "commit"; tree: MindNode; focusId?: string | null }
   | { type: "select"; id: string | null }
+  /** Ctrl/Cmd + 左键：切换某个节点的选中态 */
+  | { type: "toggleSelect"; id: string }
+  /** 清空全部选中（Esc / 点击空白） */
+  | { type: "clearSelect" }
   | { type: "reset"; tree: MindNode }
   | { type: "undo" }
   | { type: "redo" };
+
+/** 由主选中项派生多选集合（普通选中时集合只有它自己） */
+function selectOnly(id: string | null): string[] {
+  return id ? [id] : [];
+}
 
 function docReducer(state: DocState, action: DocAction): DocState {
   switch (action.type) {
@@ -127,18 +153,45 @@ function docReducer(state: DocState, action: DocAction): DocState {
         future: [],
         selectedId:
           action.focusId === undefined ? state.selectedId : action.focusId,
+        // 树变化后剔除已不存在的 id，保持多选集合与实际节点一致
+        selectedIds:
+          action.focusId === undefined
+            ? state.selectedIds
+            : selectOnly(action.focusId),
       };
     }
     case "select":
-      return state.selectedId === action.id
+      return state.selectedId === action.id && state.selectedIds.length <= 1
         ? state
-        : { ...state, selectedId: action.id };
+        : { ...state, selectedId: action.id, selectedIds: selectOnly(action.id) };
+    case "toggleSelect": {
+      const has = state.selectedIds.includes(action.id);
+      // 取消选中：主选中项顺延到集合里剩下的第一个；集合空则清空
+      if (has) {
+        const next = state.selectedIds.filter((x) => x !== action.id);
+        return {
+          ...state,
+          selectedIds: next,
+          selectedId: next.length ? next[next.length - 1] : null,
+        };
+      }
+      return {
+        ...state,
+        selectedIds: [...state.selectedIds, action.id],
+        selectedId: action.id,
+      };
+    }
+    case "clearSelect":
+      return state.selectedId === null && state.selectedIds.length === 0
+        ? state
+        : { ...state, selectedId: null, selectedIds: [] };
     case "reset":
       return {
         tree: action.tree,
         past: [],
         future: [],
         selectedId: action.tree.id,
+        selectedIds: selectOnly(action.tree.id),
       };
     case "undo": {
       if (state.past.length === 0) return state;
@@ -148,13 +201,20 @@ function docReducer(state: DocState, action: DocAction): DocState {
         past: state.past.slice(0, -1),
         future: [state.tree, ...state.future].slice(0, HISTORY_LIMIT),
         selectedId: state.selectedId,
+        selectedIds: state.selectedIds,
       };
     }
     case "redo": {
       if (state.future.length === 0) return state;
       const next = state.future[0];
       const past = [...state.past, state.tree].slice(-HISTORY_LIMIT);
-      return { tree: next, past, future: state.future.slice(1), selectedId: state.selectedId };
+      return {
+        tree: next,
+        past,
+        future: state.future.slice(1),
+        selectedId: state.selectedId,
+        selectedIds: state.selectedIds,
+      };
     }
     default:
       return state;
@@ -239,6 +299,62 @@ function linkPath(l: MindLink): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* 分支样式（截图 1）与手绘（截图 5）路径加工                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 解析 linkPath 产出的 d，抽出分支样式 / 手绘曲线需要的端点与切向。
+ * 与 parseLinkPath 同源，但额外保留控制点，供 branchPath 的 cubic 分支使用。
+ */
+function toBranchGeom(g: LinkGeom): BranchGeom {
+  const cubic = g.v0.x !== g.v1.x || g.v0.y !== g.v1.y;
+  // 曲线的中点控制点按标准三次贝塞尔公式反推（用于 brace 等形态还原曲率）
+  const mx = (g.p0.x + 3 * (g.p0.x + g.v0.x) + 3 * (g.p1.x - g.v1.x) + g.p1.x) / 8;
+  const my = (g.p0.y + 3 * (g.p0.y + g.v0.y) + 3 * (g.p1.y - g.v1.y) + g.p1.y) / 8;
+  return {
+    p0: g.p0,
+    p1: g.p1,
+    v0: g.v0,
+    v1: g.v1,
+    cubic,
+    c1: { x: g.p0.x + g.v0.x * 24, y: g.p0.y + g.v0.y * 24 },
+    c2: { x: mx, y: my },
+  };
+}
+
+/**
+ * 手绘主题下把连线的 d 换成「双笔触」路径（返回 2 条 path）。
+ * 曲线（三次贝塞尔）走 sketchCurve 保留柔和走向，折线 / 直线走 sketchLine。
+ *
+ * 判曲线不能靠「数字个数 ≥ 8」——肘形折线 `M..L..L..L..` 也是 8 个数字，
+ * 会被误判成三次贝塞尔而画歪；这里直接看路径里有没有 `C` 指令。
+ */
+function handdrawLink(
+  d: string,
+  seed: string,
+  jitter: number
+): string[] {
+  const g = parseLinkPath(d);
+  if (!g) return [d];
+  const nums = d.match(/-?\d+(?:\.\d+)?/g);
+  if (nums && /\bC\b/.test(d) && nums.length >= 8) {
+    return sketchCurve(
+      g.p0,
+      { x: Number(nums[2]), y: Number(nums[3]) },
+      { x: Number(nums[4]), y: Number(nums[5]) },
+      g.p1,
+      seed,
+      { amp: jitter, gap: 1.5, segments: 14 }
+    );
+  }
+  return sketchLine(g.p0.x, g.p0.y, g.p1.x, g.p1.y, seed, {
+    amp: jitter,
+    gap: 1.5,
+    segments: 12,
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /* 连线形态：直线 / 箭头 / 从粗到细（taper）                            */
 /*                                                                     */
 /* 连线路径只由 linkPath 产出，形如：                                   */
@@ -259,18 +375,29 @@ interface LinkGeom {
 function parseLinkPath(d: string): LinkGeom | null {
   const nums = d.match(/-?\d+(?:\.\d+)?/g)?.map(Number);
   if (!nums || nums.length < 4) return null;
-  const cubic = nums.length >= 8;
-  const at = (i: number) => ({ x: nums[i * 2], y: nums[i * 2 + 1] });
-  const p0 = at(0);
-  const p1 = cubic ? at(3) : at(1);
+  // 统一「先摊平成点列」再取端点。
+  // 早期版本按「数字个数 ≥ 8 即三次贝塞尔」分支取端点，对折线是错的：
+  // `M..L..L..L..` 恰好 8 个数字会走 cubic 分支，p1 取到第 4 个点而不是终点，
+  // 箭头就掉在半路上。摊平后两端点恒为首 / 尾，切向取第一 / 最后一段的方向，
+  // 三次贝塞尔（p0 c1 c2 p1）与折线 / 手绘抖动折线都能正确解析。
+  const pts: { x: number; y: number }[] = [];
+  for (let i = 0; i + 1 < nums.length; i += 2) {
+    pts.push({ x: nums[i], y: nums[i + 1] });
+  }
+  const p0 = pts[0];
+  const p1 = pts[pts.length - 1];
   const unit = (ax: number, ay: number, bx: number, by: number) => {
     const L = Math.hypot(bx - ax, by - ay) || 1;
     return { x: (bx - ax) / L, y: (by - ay) / L };
   };
-  // 三次贝塞尔端点切向由「控制点 - 端点」给出；折线（8 个数但非 C）用相邻折点近似，
-  // 结果一样是最后一段 / 第一段的方向，箭头朝向仍正确。
-  const v0 = cubic ? unit(p0.x, p0.y, at(1).x, at(1).y) : unit(p0.x, p0.y, p1.x, p1.y);
-  const v1 = cubic ? unit(at(2).x, at(2).y, p1.x, p1.y) : unit(p0.x, p0.y, p1.x, p1.y);
+  const v0 =
+    pts.length >= 2
+      ? unit(p0.x, p0.y, pts[1].x, pts[1].y)
+      : unit(p0.x, p0.y, p1.x, p1.y);
+  const v1 =
+    pts.length >= 2
+      ? unit(pts[pts.length - 2].x, pts[pts.length - 2].y, p1.x, p1.y)
+      : unit(p0.x, p0.y, p1.x, p1.y);
   return { p0, p1, v0, v1 };
 }
 
@@ -280,6 +407,48 @@ function parseLinkPath(d: string): LinkGeom | null {
  */
 const TAPER_THICK_W = 8
 const TAPER_THIN_W = 2
+
+/**
+ * 在「已采样好的中心线」上生成两端渐变的填充带。
+ * taperFillPath 与手绘版共用这一段几何逻辑：区别只在于中心线点从哪来 ——
+ * 普通路径由贝塞尔公式采样，手绘路径由抖动后的折线提供。
+ */
+function taperBandFromPoints(
+  pts: { x: number; y: number }[],
+  w0: number,
+  w1: number
+): string {
+  const N = pts.length - 1;
+  if (N < 1) return "";
+  const fmt = (p: { x: number; y: number }) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`;
+  const left: string[] = [];
+  const right: string[] = [];
+  for (let i = 0; i <= N; i++) {
+    const a = pts[Math.max(0, i - 1)];
+    const b = pts[Math.min(N, i + 1)];
+    let tx = b.x - a.x;
+    let ty = b.y - a.y;
+    const L = Math.hypot(tx, ty) || 1;
+    tx /= L;
+    ty /= L;
+    const w = w0 + (w1 - w0) * (i / N);
+    left.push(fmt({ x: pts[i].x - ty * w * 0.5, y: pts[i].y + tx * w * 0.5 }));
+    right.push(fmt({ x: pts[i].x + ty * w * 0.5, y: pts[i].y - tx * w * 0.5 }));
+  }
+  return `M ${left.join(" L ")} L ${right.reverse().join(" L ")} Z`;
+}
+
+/** 手绘路径的中心线采样：把抖动折线还原成点序列（供 taper 填充带使用） */
+function handTaperFill(d: string, w0: number, w1: number): string {
+  // handCurve / handLine 产出的都是 "M x y L x y L ..." 折线，直接解析坐标对
+  const nums = d.match(/-?\d+(?:\.\d+)?/g)?.map(Number);
+  if (!nums || nums.length < 4) return "";
+  const pts: { x: number; y: number }[] = [];
+  for (let i = 0; i + 1 < nums.length; i += 2) {
+    pts.push({ x: nums[i], y: nums[i + 1] });
+  }
+  return taperBandFromPoints(pts, w0, w1);
+}
 
 /**
  * 把连线路径变成「从粗到细」的填充带（两端宽度线性插值）。
@@ -308,22 +477,7 @@ function taperFillPath(d: string, w0: number, w1: number): string | null {
     }
     pts.push({ x, y });
   }
-  const fmt = (p: { x: number; y: number }) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`;
-  const left: string[] = [];
-  const right: string[] = [];
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[Math.max(0, i - 1)];
-    const b = pts[Math.min(pts.length - 1, i + 1)];
-    let tx = b.x - a.x;
-    let ty = b.y - a.y;
-    const L = Math.hypot(tx, ty) || 1;
-    tx /= L;
-    ty /= L;
-    const w = w0 + (w1 - w0) * (i / N);
-    left.push(fmt({ x: pts[i].x - ty * w * 0.5, y: pts[i].y + tx * w * 0.5 }));
-    right.push(fmt({ x: pts[i].x + ty * w * 0.5, y: pts[i].y - tx * w * 0.5 }));
-  }
-  return `M ${left.join(" L ")} L ${right.reverse().join(" L ")} Z`;
+  return taperBandFromPoints(pts, w0, w1);
 }
 
 /**
@@ -374,6 +528,7 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
     // 默认选中根节点：这样工具栏里的节点级功能（样式 / 优先级 / 进度 / 图标等）
     // 一打开就能直接使用，而不是静默无反应
     selectedId: data.id as string | null,
+    selectedIds: [data.id as string],
   }));
 
   const treeRef = useRef(doc.tree);
@@ -503,6 +658,11 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
   const radius = base.radius ?? theme.radius;
   const strokeWidth = base.strokeWidth ?? theme.strokeWidth;
   const canvasBg = base.background ?? theme.background;
+  /** 分支样式（截图 1）：括号 / 圆弧等，默认沿用 lineStyle 骨架 */
+  const branchStyle = base.branchStyle ?? "default";
+  /** 手绘主题（截图 5）：外框与连线都改为抖动路径 */
+  const handOn = Boolean(theme.handDrawn);
+  const handJitter = theme.handJitter ?? 1.5;
 
   const selectedNode = doc.selectedId ? findNode(doc.tree, doc.selectedId) : null;
   const selStyle: MindNodeStyle = selectedNode?.style ?? {};
@@ -1007,7 +1167,7 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
         case "Escape":
           e.preventDefault();
           setMenuId(null);
-          dispatch({ type: "select", id: null });
+          dispatch({ type: "clearSelect" });
           return;
         case "ArrowUp":
           e.preventDefault();
@@ -1312,7 +1472,8 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
     dragRef.current = null;
     if (!d || d.moved) return;
     if ((e.target as HTMLElement).closest(".mm-node, .mm-collapse")) return;
-    dispatch({ type: "select", id: null });
+    // 点空白：清空选中（多选集合一并清空）
+    dispatch({ type: "clearSelect" });
   };
 
   const confirmDialog = () => {
@@ -1353,8 +1514,108 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
     [doc.selectedId, editableNow, showToast]
   );
 
-  /** 按深度批量设置收起状态：depth >= d 的节点收起（d 为极大值时全展开） */
-  const setCollapsedBelow = useCallback((d: number) => {
+  /* --------------------- 多选聚合：关联线 / 概要 / 分组框 --------------------- */
+
+  /** 当前多选集合（过滤掉树里已不存在的 id，避免脏数据画线） */
+  const validSelectedIds = useMemo(
+    () => doc.selectedIds.filter((id) => findNode(doc.tree, id) != null),
+    [doc.selectedIds, doc.tree]
+  );
+
+  /** 为多选生成一段稳定的 id（同一批操作不重复） */
+  const groupId = useCallback(
+    (prefix: string) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    []
+  );
+
+  /**
+   * 给多选节点两两添加关联线（截图 2）。
+   * 采用「链式」而非完全两两连接：N 个节点产生 N-1 条线，
+   * 避免 4 个节点就画出 6 条线把画面糊住。
+   */
+  const addAssocBetweenSelected = useCallback(() => {
+    if (!editableNow) return;
+    const ids = validSelectedIds;
+    if (ids.length < 2) {
+      showToast("请按住 Ctrl / Cmd 选中至少 2 个节点", "err");
+      return;
+    }
+    const cur = treeRef.current.assocLines ?? [];
+    const next = [...cur];
+    let added = 0;
+    for (let i = 0; i < ids.length - 1; i += 1) {
+      const fromId = ids[i];
+      const toId = ids[i + 1];
+      if (next.some((l) => l.fromId === fromId && l.toId === toId)) continue;
+      next.push({ id: groupId("assoc"), fromId, toId, arrow: "out" });
+      added += 1;
+    }
+    if (!added) {
+      showToast("所选节点之间已存在关联线", "err");
+      return;
+    }
+    dispatch({
+      type: "commit",
+      tree: opUpdate(treeRef.current, treeRef.current.id, { assocLines: next }),
+    });
+    showToast(`已添加 ${added} 条关联线`);
+  }, [editableNow, groupId, showToast, validSelectedIds]);
+
+  /**
+   * 把多选节点汇总为一个概要（截图 3）。
+   * 概要框的位置由 ExtrasLayer 依据节点包围盒实时算出，因此这里只存节点 id 集合。
+   */
+  const addSummaryForSelected = useCallback(
+    (text: string) => {
+      if (!editableNow) return;
+      const ids = validSelectedIds;
+      if (ids.length < 2) {
+        showToast("请按住 Ctrl / Cmd 选中至少 2 个节点", "err");
+        return;
+      }
+      const label = text.trim() || "概要";
+      const cur = treeRef.current.summaryGroups ?? [];
+      dispatch({
+        type: "commit",
+        tree: opUpdate(treeRef.current, treeRef.current.id, {
+          summaryGroups: [...cur, { id: groupId("sum"), nodeIds: ids, text: label }],
+        }),
+      });
+      showToast(`已为 ${ids.length} 个节点创建概要`);
+    },
+    [editableNow, groupId, showToast, validSelectedIds]
+  );
+
+  /** 把多选节点圈成一个分组框（截图 4） */
+  const addFrameForSelected = useCallback(
+    (text: string) => {
+      if (!editableNow) return;
+      const ids = validSelectedIds;
+      if (ids.length < 1) {
+        showToast("请先按住 Ctrl / Cmd 选中节点", "err");
+        return;
+      }
+      const cur = treeRef.current.frameGroups ?? [];
+      dispatch({
+        type: "commit",
+        tree: opUpdate(treeRef.current, treeRef.current.id, {
+          frameGroups: [
+            ...cur,
+            { id: groupId("frm"), nodeIds: ids, label: text.trim() || undefined },
+          ],
+        }),
+      });
+      showToast(`已为 ${ids.length} 个节点创建分组框`);
+    },
+    [editableNow, groupId, showToast, validSelectedIds]
+  );
+
+  /** 清空多选（不改动树，仅收起选择） */
+  const clearMultiSelect = useCallback(() => {
+    dispatch({ type: "clearSelect" });
+  }, []);
+
+  /** 按深度批量设置收起状态：depth >= d 的节点收起（d 为极大值时全展开） */  const setCollapsedBelow = useCallback((d: number) => {
     const walk = (n: MindNode, depth: number): MindNode => ({
       ...n,
       collapsed: depth >= d ? true : n.collapsed,
@@ -1401,6 +1662,18 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
       },
       getSelectedId: () => doc.selectedId,
       hasSelection: () => Boolean(doc.selectedId),
+
+      /* 多选（Ctrl / Cmd + 左键） */
+      getSelectedIds: () => doc.selectedIds,
+      toggleSelect: (id: string) => {
+        if (!findNode(treeRef.current, id)) return false;
+        dispatch({ type: "toggleSelect", id });
+        return true;
+      },
+      clearSelect: () => dispatch({ type: "clearSelect" }),
+      addAssocBetween: addAssocBetweenSelected,
+      addSummaryFor: addSummaryForSelected,
+      addFrameFor: addFrameForSelected,
 
       /* 节点样式 / 新建节点文字默认值 */
       setNodeStyle: (patch) => applyStyle(patch),
@@ -1504,7 +1777,7 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
           tree: opUpdate(treeRef.current, treeRef.current.id, {
             assocLines: [
               ...cur,
-              { id: `assoc-${Date.now().toString(36)}`, fromId, toId, label: label || undefined },
+              { id: `assoc-${Date.now().toString(36)}`, fromId, toId, label: label || undefined, arrow: "out" },
             ],
           }),
         });
@@ -1531,15 +1804,19 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
       },
     }),
     [
+      addAssocBetweenSelected,
       addChild,
+      addFrameForSelected,
       addParent,
       addSibling,
+      addSummaryForSelected,
       applyStyle,
       buildSvgPayload,
       collapseToDepth,
       doc.future.length,
       doc.past.length,
       doc.selectedId,
+      doc.selectedIds,
       expandAll,
       fit,
       handleExport,
@@ -1584,6 +1861,11 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
           config={config}
           onConfig={(patch) => setConfig((c) => ({ ...c, ...patch }))}
           onBase={(patch) => setConfig((c) => ({ ...c, base: { ...c.base, ...patch } }))}
+          selectedCount={validSelectedIds.length}
+          onAddAssoc={addAssocBetweenSelected}
+          onAddSummary={addSummaryForSelected}
+          onAddFrame={addFrameForSelected}
+          onClearMultiSelect={clearMultiSelect}
           priority={selectedNode?.priority}
           onSetPriority={setPriority}
           progress={selectedNode?.progress}
@@ -1618,52 +1900,112 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
             transform={`translate(${transform.tx},${transform.ty}) scale(${transform.scale})`}
           >
             {layout.links.map((l) => {
-              const d = linkPath(l);
+              const base_d = linkPath(l);
+              // 分支样式（截图 1）：在骨架外套一层括号 / 圆弧形态
+              const bsGeo = branchStyle === "default" ? null : parseLinkPath(base_d);
+              const styled =
+                bsGeo && branchStyle !== "default"
+                  ? branchPath(branchStyle, toBranchGeom(bsGeo))
+                  : null;
+              // 手绘主题（参考截图）：把最终路径换成「双笔触」路径（2 条 path）
+              const sketch =
+                handOn && styled
+                  ? handdrawLink(styled, `${l.from.node.id}->${l.to.node.id}`, handJitter)
+                  : handOn
+                  ? handdrawLink(base_d, `${l.from.node.id}->${l.to.node.id}`, handJitter)
+                  : null;
+              const d = sketch ? sketch[0] : (styled ?? base_d);
               // 单色模式：忽略各分支的主题色，整张画布统一用 linkColor
               const color = linkColorMode === "single" ? linkColor : l.color ?? linkColor;
               const pattern = base.linkPattern ?? "solid";
               const arrow = base.linkArrow ?? "none";
               const geo = arrow === "none" ? null : parseLinkPath(d);
               // 从粗到细：变宽只能靠填充带表达（描边加 dash 会退化成虚线），与虚线互斥
+              // 手绘主题下 taper 改用手绘中心线表达，避免填充带盖掉抖动效果
               const taper =
-                pattern === "taper" ? taperFillPath(d, TAPER_THICK_W, TAPER_THIN_W) : null;
+                pattern === "taper"
+                  ? handOn
+                    ? handTaperFill(d, TAPER_THICK_W, TAPER_THIN_W)
+                    : taperFillPath(d, TAPER_THICK_W, TAPER_THIN_W)
+                  : null;
               // 箭头跟着「所在端」的线宽：taper 父端 8 / 子端 2，否则用 linkWidth 派生
               const arrowW =
                 pattern === "taper" ? (arrow === "inward" ? TAPER_THICK_W : TAPER_THIN_W) : linkWidth;
               const arrowLen = arrowW * 3 + 4
               const arrowBase = arrowW * 1.7 + 1
+              const dashAttr = pattern === "dashed" ? "7 5" : undefined;
               return (
                 <g key={`${l.from.node.id}->${l.to.node.id}`} className="mm-link">
                   {taper ? (
                     <path d={taper} fill={color} stroke="none" />
+                  ) : sketch ? (
+                    // 双笔触：两笔各自独立描一遍，端点在节点边缘收拢
+                    sketch.map((pd, i) => (
+                      <path
+                        key={i}
+                        d={pd}
+                        fill="none"
+                        stroke={color}
+                        strokeWidth={linkWidth * (i === 0 ? 1 : 0.82)}
+                        strokeDasharray={dashAttr}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    ))
                   ) : (
                     <path
                       d={d}
                       fill="none"
                       stroke={color}
                       strokeWidth={linkWidth}
-                      strokeDasharray={pattern === "dashed" ? "7 5" : undefined}
+                      strokeDasharray={dashAttr}
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />
                   )}
-                  {geo && (
-                    <polygon
-                      points={
+                  {geo &&
+                    // 手绘风格用「空心 V」（两根短线），其余保持实心三角：
+                    // 参考截图的箭头就是开口的，实心三角会把线头糊成一坨
+                    (sketch ? (
+                      sketchArrowHead(
                         // 向内：尖端贴在父端并朝父节点（朝画布中心收）；向外：尖端贴在子端朝外
-                        arrow === "inward"
-                          ? arrowTri(geo.p0, { x: -geo.v0.x, y: -geo.v0.y }, arrowLen, arrowBase)
-                          : arrowTri(geo.p1, geo.v1, arrowLen, arrowBase)
-                      }
-                      fill={color}
-                    />
-                  )}
+                        arrow === "inward" ? geo.p0 : geo.p1,
+                        arrow === "inward" ? { x: -geo.v0.x, y: -geo.v0.y } : geo.v1,
+                        arrowLen,
+                        arrowBase,
+                        `arw-${l.from.node.id}-${l.to.node.id}`,
+                        { amp: handJitter, gap: 0 }
+                      ).map((pd, i) => (
+                        <path
+                          key={`ah${i}`}
+                          d={pd}
+                          fill="none"
+                          stroke={color}
+                          strokeWidth={linkWidth * 1.15}
+                          strokeLinecap="round"
+                        />
+                      ))
+                    ) : (
+                      <polygon
+                        points={
+                          arrow === "inward"
+                            ? arrowTri(geo.p0, { x: -geo.v0.x, y: -geo.v0.y }, arrowLen, arrowBase)
+                            : arrowTri(geo.p1, geo.v1, arrowLen, arrowBase)
+                        }
+                        fill={color}
+                      />
+                    ))}
                 </g>
               );
             })}
 
             {/* 关联线 / 外框 / 概要：画在连线之上、节点之下 */}
-            <ExtrasLayer root={doc.tree} nodes={layoutNodes} />
+            <ExtrasLayer
+              root={doc.tree}
+              nodes={layoutNodes}
+              handDrawn={handOn}
+              handJitter={handJitter}
+            />
 
             {layout.nodes.map((p) => {
               const node = p.node;
@@ -1722,9 +2064,26 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
                   : isRoot && showRect
                   ? base.nodeText ?? theme.rootText
                   : base.nodeText ?? theme.nodeText);
+              // 手绘风格（参考截图）：外框走「双笔触」路径 ——
+              // 中心节点是两道同心椭圆（gap 略大），普通节点是两道错开的圆角框。
+              const handStrokes: string[] | null =
+                handOn && showRect
+                  ? isRoot
+                    ? sketchEllipse(p.w / 2, p.h / 2, p.w / 2, p.h / 2, `root-${node.id}`, {
+                        amp: handJitter,
+                        gap: 3.6,
+                      })
+                    : sketchRect(0, 0, p.w, p.h, rx, `nd-${node.id}`, {
+                        amp: handJitter,
+                        gap: 2.2,
+                      })
+                  : null;
               // 节点边框线型：实线 / 虚线 / 点线 / 点划线（根节点与带框节点生效）
               const dash = BORDER_DASH[eff.borderStyle ?? "solid"];
               const isSelected = node.id === doc.selectedId && !editing;
+              // 多选高亮：非主选中项但仍在集合里的节点，用更轻的描边提示
+              const isMultiPicked =
+                validSelectedIds.length > 1 && validSelectedIds.includes(node.id) && !isSelected;
               const hasKids = node.children.length > 0;
               const isCollapsed = Boolean(node.collapsed);
               const sized = nodeSize(node, p.depth);
@@ -1754,7 +2113,12 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
                     e.stopPropagation();
                     focusStage();
                     setMenuId(null);
-                    dispatch({ type: "select", id: node.id });
+                    // Ctrl / Cmd + 左键 = 切换选中（多选）；否则单选替换
+                    if (e.ctrlKey || e.metaKey) {
+                      dispatch({ type: "toggleSelect", id: node.id });
+                    } else {
+                      dispatch({ type: "select", id: node.id });
+                    }
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -1791,7 +2155,49 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
                       strokeDasharray="5 4"
                     />
                   )}
-                  {showRect && (
+                  {/* 多选提示环：非主选中项的已选节点 */}
+                  {isMultiPicked && editableNow && (
+                    <rect
+                      className="mm-ui-only"
+                      x={-4}
+                      y={-4}
+                      width={p.w + 8}
+                      height={p.h + 8}
+                      rx={radius + 4}
+                      ry={radius + 4}
+                      fill="none"
+                      stroke="#2f6fed"
+                      strokeWidth={1.2}
+                      strokeDasharray="2 3"
+                      opacity={0.75}
+                    />
+                  )}
+                  {/* 手绘主题（参考截图）：中心节点双笔椭圆 + 普通节点双笔圆角矩形 */}
+                  {handStrokes && (
+                    <>
+                      {/* 底色只填一次：第 0 笔就是「外皮」，直接拿它当填充轮廓，
+                          避免两笔各自填充后出现错位色边 */}
+                      <path className="mm-rect" d={handStrokes[0]} fill={fill} stroke="none" />
+                      {handStrokes.map((pd, i) => (
+                        <path
+                          key={`hs${i}`}
+                          d={pd}
+                          fill="none"
+                          stroke={noBorder ? "transparent" : stroke}
+                          strokeWidth={
+                            noBorder
+                              ? 0
+                              : (isSelected && editableNow ? strokeWidth + 0.6 : strokeWidth) *
+                                (i === 0 ? 1 : 0.86)
+                          }
+                          strokeDasharray={dash}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      ))}
+                    </>
+                  )}
+                  {!handStrokes && showRect && (
                     <rect
                       className="mm-rect"
                       width={p.w}
@@ -1826,15 +2232,37 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
                   )}
 
                   {isUnderline && !isTimeline && !isFishbone && (
-                    <line
-                      className="mm-underline"
-                      x1={UNDER_LEFT}
-                      y1={underY}
-                      x2={UNDER_LEFT + prefixWidth(node) + railTextW + UNDER_PAD_R}
-                      y2={underY}
-                      stroke={stroke}
-                      strokeWidth={1.6}
-                    />
+                    /* 手绘风格下下划线也走双笔触，与外框/连线同一套笔法 */
+                    handOn ? (
+                      sketchLine(
+                        UNDER_LEFT,
+                        underY,
+                        UNDER_LEFT + prefixWidth(node) + railTextW + UNDER_PAD_R,
+                        underY,
+                        `ul-${node.id}`,
+                        { amp: handJitter, gap: 1.6, segments: 10 }
+                      ).map((pd, i) => (
+                        <path
+                          key={`ul${i}`}
+                          d={pd}
+                          className="mm-underline"
+                          fill="none"
+                          stroke={stroke}
+                          strokeWidth={i === 0 ? 1.6 : 1.3}
+                          strokeLinecap="round"
+                        />
+                      ))
+                    ) : (
+                      <line
+                        className="mm-underline"
+                        x1={UNDER_LEFT}
+                        y1={underY}
+                        x2={UNDER_LEFT + prefixWidth(node) + railTextW + UNDER_PAD_R}
+                        y2={underY}
+                        stroke={stroke}
+                        strokeWidth={1.6}
+                      />
+                    )
                   )}
 
                   {node.formula ? (
@@ -2298,7 +2726,7 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
 
         {!selectedNode && editableNow && (
           <div className="mm-hint">
-            点击选中 · 双击编辑 · 右键功能菜单 · 拖动节点可排序 / 挂接
+            点击选中 · 双击编辑 · 右键功能菜单 · 拖动节点可排序 / 挂接 · Ctrl/Cmd + 左键多选
           </div>
         )}
 

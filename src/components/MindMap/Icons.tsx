@@ -28,7 +28,10 @@ export type IconName =
   | "check"
   | "brush"
   | "file-plus"
-  | "keyboard";
+  | "keyboard"
+  | "multi"
+  | "summary"
+  | "group";
 
 const PATHS: Record<IconName, string[]> = {
   undo: ["M9 14 4 9l5-5", "M4 9h10.5a5.5 5.5 0 0 1 0 11H9"],
@@ -121,6 +124,25 @@ const PATHS: Record<IconName, string[]> = {
     "M14 10h.01",
     "M17.5 10h.01",
     "M8 13.5h8",
+  ],
+  /** 多选：两个节点 + 勾选，表示「选中若干节点」 */
+  multi: [
+    "M3.5 5.5h7v5h-7z",
+    "M13.5 15.5h7v5h-7z",
+    "M7.5 10.5v3.5h6",
+    "M9.5 14l1.6 1.6 3.4-3.4",
+  ],
+  /** 概要：右侧括号 + 汇总框 */
+  summary: [
+    "M8 4.5c3 0 2.5 3.6 0 3.9-2.5.3-3 7.6 0 7.6",
+    "M8 12h6.5",
+    "M14.5 8.5h6v7h-6z",
+  ],
+  /** 分组框：虚线圆角框圈住两个节点 */
+  group: [
+    "M3.5 7.5v-2a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z",
+    "M7.5 9.5h4v3h-4z",
+    "M13 9.5h4v3h-4z",
   ],
 };
 

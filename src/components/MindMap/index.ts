@@ -14,6 +14,9 @@ export type {
   MindNodeFrame,
   MindGeneralization,
   MindAssocLine,
+  MindAssocArrow,
+  MindSummaryGroup,
+  MindFrameGroup,
   MindMapApi,
   MindMapProps,
   MindMapConfig,
@@ -25,6 +28,7 @@ export type {
   LinkPattern,
   LinkArrow,
   LinkColorMode,
+  BranchStyle,
 } from "./types";
 export {
   DEFAULT_CONFIG,
@@ -37,10 +41,33 @@ export {
   LINK_PATTERNS,
   LINK_ARROWS,
   LINK_COLOR_MODES,
+  BRANCH_STYLES,
 } from "./types";
 
 export { layoutTree, nodeSize, textCenterX } from "./layout";
 export type { PositionedNode, MindLink, LayoutResult, SizedNode } from "./layout";
+
+/* --------------------- 手绘风格 / 分支样式路径生成 --------------------- */
+/**
+ * `sketch*` 是「双笔触」手绘（仿参考截图：每笔画两遍、两笔在两端收拢、
+ * 中段错开、转角出头）；`hand*` 是它的单笔兼容版（取第 0 笔），
+ * 保留给老调用方与新导出路径。
+ */
+export {
+  handLine,
+  handCurve,
+  handRect,
+  handEllipse,
+  sketchLine,
+  sketchCurve,
+  sketchRect,
+  sketchEllipse,
+  sketchPath,
+  sketchArrowHead,
+} from "./handdrawn";
+export type { SketchOptions } from "./handdrawn";
+export { branchPath } from "./branchstyle";
+export type { BranchGeom } from "./branchstyle";
 
 export {
   THEME_LIST,

@@ -1,9 +1,14 @@
-import { useRef, type MouseEvent as ReactMouseEvent } from "react";
+import { useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Icon } from "./Icons";
 import { Popover, PopLabel } from "./Popover";
 import {
+  BORDER_STYLES,
+  BRANCH_STYLES,
   FONT_FAMILIES,
   FONT_SIZES,
+  LINK_ARROWS,
+  LINK_COLOR_MODES,
+  LINK_PATTERNS,
   SHAPES,
   type BaseStyle,
   type CanvasCategory,
@@ -58,6 +63,13 @@ export interface ToolbarProps {
   onConfig: (patch: Partial<MindMapConfig>) => void;
   /** 基础（默认）样式：影响新建节点与画布 */
   onBase: (patch: Partial<BaseStyle>) => void;
+  /* ---- 多选聚合（关联线 / 概要 / 分组框） ---- */
+  /** 当前选中节点数量（>1 时聚合面板可用） */
+  selectedCount: number;
+  onAddAssoc: () => void;
+  onAddSummary: (text: string) => void;
+  onAddFrame: (label: string) => void;
+  onClearMultiSelect: () => void;
   /** 优先级 / 进度 / 图标前缀 */
   priority?: number;
   onSetPriority: (v: number | undefined) => void;
@@ -79,6 +91,7 @@ const SHORTCUTS: [string, string][] = [
   ["Delete", "删除节点"],
   ["空格", "折叠 / 展开"],
   ["方向键", "切换选中节点"],
+  ["Ctrl / Cmd + 左键", "多选节点（配合「多选」面板建关联线 / 概要 / 分组框）"],
   ["Ctrl + Z", "撤销"],
   ["Ctrl + Shift + Z", "重做"],
   ["Ctrl + S", "保存 .km 文件"],
@@ -190,6 +203,54 @@ function ThemeSwatch({ id }: { id: string }) {
   );
 }
 
+/* ----------------------------- 分支样式缩略图 ----------------------------- */
+
+/**
+ * 分支样式缩略图（截图 1）。
+ * 每个缩略图就是该样式真实绘制的连线形态 —— 图标与画布同源，所见即所得。
+ */
+function BranchThumb({ kind }: { kind: string }) {
+  const c = "#5b6472";
+  const common = {
+    fill: "none",
+    stroke: c,
+    strokeWidth: 1.5,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+  return (
+    <svg width="34" height="24" viewBox="0 0 34 24" aria-hidden="true">
+      {kind === "default" && (
+        <path d="M4 12 C 14 12, 18 12, 30 12" {...common} />
+      )}
+      {kind === "bracket-left" && (
+        <path d="M4 6 L 14 6 L 14 18 L 30 18" {...common} />
+      )}
+      {kind === "bracket-right" && (
+        <path d="M4 18 L 20 18 L 20 6 L 30 6" {...common} />
+      )}
+      {kind === "brace" && (
+        <path
+          d="M4 4 C 12 4, 9 11, 4 12 C 9 13, 12 20, 4 20 M4 12 L 30 12"
+          {...common}
+        />
+      )}
+      {kind === "arc-right" && (
+        <path d="M4 12 Q 17 2, 30 12" {...common} />
+      )}
+      {kind === "arc-left" && (
+        <path d="M4 12 Q 17 22, 30 12" {...common} />
+      )}
+      {kind === "fork" && (
+        <path d="M4 12 L 16 12 M 16 5 L 30 12 M 16 19 L 30 12" {...common} />
+      )}
+      {kind === "hook" && (
+        <path d="M4 8 L 13 8 L 13 16 L 30 16 M 30 16 L 30 10" {...common} />
+      )}
+    </svg>
+  );
+}
+
 /* ----------------------------- 工具栏主体 ----------------------------- */
 
 export function Toolbar(props: ToolbarProps) {
@@ -215,6 +276,11 @@ export function Toolbar(props: ToolbarProps) {
     config,
     onConfig,
     onBase,
+    selectedCount,
+    onAddAssoc,
+    onAddSummary,
+    onAddFrame,
+    onClearMultiSelect,
     priority,
     onSetPriority,
     progress,
@@ -228,6 +294,11 @@ export function Toolbar(props: ToolbarProps) {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const base = config.base ?? {};
+  /** 概要 / 分组框的文案输入（受控于本面板，打开时保留上次输入） */
+  const [summaryText, setSummaryText] = useState("概要");
+  const [frameLabel, setFrameLabel] = useState("");
+  /** 多选是否达到可用的下限（关联线 / 概要至少要 2 个节点） */
+  const canGroup = selectedCount >= 2;
 
   /** 除表单控件外，阻止按钮抢走画布焦点（保证键盘快捷键一直可用） */
   const guard = (e: ReactMouseEvent) => {
@@ -414,6 +485,46 @@ export function Toolbar(props: ToolbarProps) {
                 <button key={c} type="button" className={`mm-swatch ${style.borderColor === c ? "is-on" : ""}`} style={{ background: c }} title={c} onClick={() => onStyle({ borderColor: style.borderColor === c ? undefined : c })} />
               ))}
             </div>
+            <PopLabel>外框线型</PopLabel>
+            <div className="mm-seg">
+              {BORDER_STYLES.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={`mm-seg-btn ${(style.borderStyle ?? "solid") === s.id ? "is-on" : ""}`}
+                  title={s.label}
+                  onClick={() =>
+                    onStyle({
+                      borderStyle:
+                        (style.borderStyle ?? "solid") === s.id ? undefined : s.id,
+                    } as Partial<MindNodeStyle>)
+                  }
+                >
+                  {/* 线型示意：用一段对应 dash 的横线，视觉上直接看出实/虚/点/点划 */}
+                  <svg width="26" height="8" viewBox="0 0 26 8" aria-hidden="true">
+                    <line
+                      x1="1"
+                      y1="4"
+                      x2="25"
+                      y2="4"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeDasharray={
+                        s.id === "solid"
+                          ? undefined
+                          : s.id === "dashed"
+                          ? "5 3"
+                          : s.id === "dotted"
+                          ? "1 3"
+                          : "6 2.5 1 2.5"
+                      }
+                    />
+                  </svg>
+                  <span className="mm-seg-cap">{s.label}</span>
+                </button>
+              ))}
+            </div>
           </>
         )}
       </Popover>
@@ -453,6 +564,132 @@ export function Toolbar(props: ToolbarProps) {
                 <button key={c} type="button" className={`mm-swatch ${base.linkColor === c ? "is-on" : ""}`} style={{ background: c }} title={c} onClick={() => onBase({ linkColor: base.linkColor === c ? undefined : c })} />
               ))}
             </div>
+
+            {/* ---- 连线线型：实线 / 虚线 / 从粗到细（8px → 2px） ---- */}
+            <PopLabel>连线线型</PopLabel>
+            <div className="mm-seg">
+              {LINK_PATTERNS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`mm-seg-btn ${(base.linkPattern ?? "solid") === p.id ? "is-on" : ""}`}
+                  title={p.label}
+                  onClick={() =>
+                    onBase({
+                      linkPattern:
+                        (base.linkPattern ?? "solid") === p.id ? undefined : p.id,
+                    } as Partial<BaseStyle>)
+                  }
+                >
+                  <svg width="34" height="10" viewBox="0 0 34 10" aria-hidden="true">
+                    {p.id === "taper" ? (
+                      /* 从粗到细：左端 8px、右端 2px 的渐窄带 */
+                      <path d="M2 1 L32 4.2 L32 5.8 L2 9 Z" fill="currentColor" />
+                    ) : (
+                      <line
+                        x1="2"
+                        y1="5"
+                        x2="32"
+                        y2="5"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeDasharray={p.id === "dashed" ? "5 3" : undefined}
+                      />
+                    )}
+                  </svg>
+                  <span className="mm-seg-cap">{p.label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* ---- 连线箭头：无 / 向外 / 向内 ---- */}
+            <PopLabel>连线箭头</PopLabel>
+            <div className="mm-seg">
+              {LINK_ARROWS.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  className={`mm-seg-btn ${(base.linkArrow ?? "none") === a.id ? "is-on" : ""}`}
+                  title={a.label}
+                  onClick={() =>
+                    onBase({
+                      linkArrow:
+                        (base.linkArrow ?? "none") === a.id ? undefined : a.id,
+                    } as Partial<BaseStyle>)
+                  }
+                >
+                  <svg width="34" height="10" viewBox="0 0 34 10" aria-hidden="true">
+                    <line x1="4" y1="5" x2="30" y2="5" stroke="currentColor" strokeWidth="1.6" />
+                    {a.id === "outward" && (
+                      /* 向外：箭头在右端（子节点侧），尖端朝右 */
+                      <polygon points="34,5 27,1.6 27,8.4" fill="currentColor" />
+                    )}
+                    {a.id === "inward" && (
+                      /* 向内：箭头在左端（父节点侧），尖端朝左 */
+                      <polygon points="0,5 7,1.6 7,8.4" fill="currentColor" />
+                    )}
+                  </svg>
+                  <span className="mm-seg-cap">{a.label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* ---- 连线色彩：彩色（按分支）/ 单色 ---- */}
+            <PopLabel>连线色彩</PopLabel>
+            <div className="mm-seg">
+              {LINK_COLOR_MODES.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className={`mm-seg-btn ${(base.linkColorMode ?? "auto") === m.id ? "is-on" : ""}`}
+                  title={m.label}
+                  onClick={() =>
+                    onBase({
+                      linkColorMode:
+                        (base.linkColorMode ?? "auto") === m.id ? undefined : m.id,
+                    } as Partial<BaseStyle>)
+                  }
+                >
+                  <svg width="34" height="10" viewBox="0 0 34 10" aria-hidden="true">
+                    {m.id === "auto" ? (
+                      /* 彩色：三段分色，暗示按分支取主题色 */
+                      <>
+                        <line x1="2" y1="5" x2="13" y2="5" stroke="#2f6fed" strokeWidth="2" strokeLinecap="round" />
+                        <line x1="14" y1="5" x2="24" y2="5" stroke="#00a870" strokeWidth="2" strokeLinecap="round" />
+                        <line x1="25" y1="5" x2="32" y2="5" stroke="#f0a020" strokeWidth="2" strokeLinecap="round" />
+                      </>
+                    ) : (
+                      <line x1="2" y1="5" x2="32" y2="5" stroke="#5b6472" strokeWidth="2" strokeLinecap="round" />
+                    )}
+                  </svg>
+                  <span className="mm-seg-cap">{m.label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* ---- 分支样式（截图 1）：括号 / 圆弧 / 分叉等 ---- */}
+            <PopLabel>分支样式</PopLabel>
+            <div className="mm-branch-grid">
+              {BRANCH_STYLES.map((b) => (
+                <button
+                  key={b.id}
+                  type="button"
+                  className={`mm-branch-card ${(base.branchStyle ?? "default") === b.id ? "is-on" : ""}`}
+                  title={b.label}
+                  onClick={() =>
+                    onBase({
+                      branchStyle:
+                        (base.branchStyle ?? "default") === b.id ? undefined : b.id,
+                    } as Partial<BaseStyle>)
+                  }
+                >
+                  <BranchThumb kind={b.id} />
+                  <span>{b.label}</span>
+                </button>
+              ))}
+            </div>
+
             <PopLabel>连线粗细 · {base.linkWidth ?? "默认"}</PopLabel>
             <input className="mm-pop-range" type="range" min={1} max={5} step={1} value={base.linkWidth ?? 2} onChange={(e) => onBase({ linkWidth: Number(e.target.value) })} />
             <PopLabel>圆角 · {base.radius ?? "默认"}</PopLabel>
@@ -469,6 +706,92 @@ export function Toolbar(props: ToolbarProps) {
                 <button key={c} type="button" className={`mm-swatch ${base.nodeText === c ? "is-on" : ""}`} style={{ background: c }} title={c} onClick={() => onBase({ nodeText: base.nodeText === c ? undefined : c })} />
               ))}
             </div>
+          </>
+        )}
+      </Popover>
+
+      {/* ===== 多选聚合：关联线 / 概要 / 分组框 ===== */}
+      <Popover
+        title="多选"
+        align="left"
+        width={252}
+        trigger={() => (
+          <span className="mm-tb-combo mm-tb-combo-text">
+            <Icon name="multi" size={17} />
+            <span>多选</span>
+            {selectedCount > 1 && <b className="mm-badge" style={{ background: "#2f6fed" }}>{selectedCount}</b>}
+            <Icon name="chevron" size={13} />
+          </span>
+        )}
+      >
+        {() => (
+          <>
+            <div className="mm-pop-tip">
+              按住 <kbd>Ctrl</kbd>（macOS 为 <kbd>Cmd</kbd>）+ 鼠标左键可连续点选多个节点。
+              {selectedCount > 0 ? ` 当前已选 ${selectedCount} 个节点。` : ""}
+            </div>
+
+            <PopLabel>关联线（按选中顺序依次连接）</PopLabel>
+            <button
+              type="button"
+              className="mm-pop-action"
+              disabled={!canGroup}
+              title={canGroup ? "为所选节点添加关联线" : "至少选中 2 个节点"}
+              onClick={() => onAddAssoc()}
+            >
+              <Icon name="link" size={15} /> 添加关联线
+            </button>
+            <svg width="100%" height="34" viewBox="0 0 220 34" aria-hidden="true" style={{ display: "block", margin: "2px 0 6px" }}>
+              <rect x="6" y="4" width="52" height="16" rx="5" fill="#eef4ff" stroke="#2f6fed" strokeWidth="1.2" />
+              <text x="32" y="15.5" fontSize="9" fill="#2f6fed" textAnchor="middle">节点 A</text>
+              <rect x="6" y="16" width="52" height="14" rx="5" fill="#eef4ff" stroke="#2f6fed" strokeWidth="1.2" />
+              <text x="32" y="26" fontSize="9" fill="#2f6fed" textAnchor="middle">节点 B</text>
+              <path d="M58 12 C 110 12, 130 23, 186 23" fill="none" stroke="#2f6fed" strokeWidth="1.5" strokeDasharray="6 4" strokeLinecap="round" />
+              <polygon points="194,23 186,19.5 186,26.5" fill="#2f6fed" />
+            </svg>
+
+            <PopLabel>概要（汇总所选节点）</PopLabel>
+            <input
+              className="mm-pop-input"
+              value={summaryText}
+              placeholder="概要文案"
+              onChange={(e) => setSummaryText(e.target.value)}
+            />
+            <button
+              type="button"
+              className="mm-pop-action"
+              disabled={!canGroup}
+              title={canGroup ? "把所选节点汇总为一个概要" : "至少选中 2 个节点"}
+              onClick={() => onAddSummary(summaryText)}
+            >
+              <Icon name="summary" size={15} /> 添加概要
+            </button>
+
+            <PopLabel>分组框（圈住所选节点）</PopLabel>
+            <input
+              className="mm-pop-input"
+              value={frameLabel}
+              placeholder="分组名称（可留空）"
+              onChange={(e) => setFrameLabel(e.target.value)}
+            />
+            <button
+              type="button"
+              className="mm-pop-action"
+              disabled={selectedCount < 1}
+              title={selectedCount > 0 ? "把所选节点圈成分组框" : "请先选中节点"}
+              onClick={() => onAddFrame(frameLabel)}
+            >
+              <Icon name="group" size={15} /> 添加分组框
+            </button>
+
+            <button
+              type="button"
+              className="mm-pop-action"
+              disabled={selectedCount < 1}
+              onClick={onClearMultiSelect}
+            >
+              <Icon name="check" size={15} /> 取消多选
+            </button>
           </>
         )}
       </Popover>
