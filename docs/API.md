@@ -125,7 +125,7 @@ dist-lib/
 
 ---
 
-## 3 命令式 API（`MindMapApi`，共 **71** 个方法）
+## 3 命令式 API（`MindMapApi`，共 **74** 个方法）
 
 声明面 `types.ts:372-487`；实现面 `MindMap.tsx:1811-1979`（依赖数组 `1980-2007`）。
 
@@ -267,7 +267,7 @@ api.current?.setWheelAction("move");   // 触控板习惯：滚轮平移
 | --- | --- | --- |
 | `zoomIn()` | `zoomBy(1.2)`，以容器中心为锚点 | 1887 |
 | `zoomOut()` | `zoomBy(1 / 1.2)` | 1888 |
-| `fitView()` | `fit()`：四边留 64px padding，scale 上限 1.3 | 1889（721-739） |
+| `fitView()` | 内部 fit 逻辑：四边留 64px padding、scale 上限 1.3；容器 `clientWidth/clientHeight` 为 0 时空转（挂载瞬间布局未定时不生效） | 1889（721-739） |
 | `resetView()` | `setTransform({ scale: 1, tx: 0, ty: 0 })` | 1890 |
 | `centerRoot()` | 保持当前 scale，把根节点中心移到容器中心 | 1891-1901 |
 | `getScale()` | `transformRef.current.scale`（避免闭包旧值） | 1902 |
@@ -517,7 +517,7 @@ root.summaryGroups = [{ id: uid("sum"), nodeIds: ["n1", "n5"], text: "汇总", c
 | `LINK_ARROWS` | `none 无箭头` / `inward 向内箭头` / `outward 向外箭头` |
 | `LINK_COLOR_MODES` | `auto 彩色`（按分支主题色）/ `single 单色`（统一 `linkColor`） |
 
-**语义**（`types.ts:200-206`）：
+**语义**（`types.ts:197-208`）：
 
 - `inward` = 箭头画在**父端**，尖端朝向父 / 根节点（朝画布中心收）。
 - `outward` = 箭头画在**子端**，尖端朝向子 / 叶子节点（朝外发散）。
@@ -899,7 +899,7 @@ async function exportPng() {
 | 篇幅 | 181 行 | `README.md` 概览 + `docs/API.md` 全量 |
 | `addSummaryFor` / `addFrameFor` | 带参 | **零参**，作用于多选集合，文案固定「概要」/「分组」 |
 | `getSvg()` | 返回 `SvgPayload`（✅） | 实现确实如此；但 `types.ts:481` 声明 `unknown`，调用方需 `as` |
-| `MindMapApi` 方法数 | 未列全 | 71 个，逐个签名 + 副作用 + 坑 |
+| `MindMapApi` 方法数 | 未列全 | 74 个，逐个签名 + 副作用 + 坑 |
 | 多选入口 | 未提 | `MultiSelectBar`（Portal 浮动条） |
 | 主菜单 | 未提 | `MainMenu` / `buildMainMenu` |
 | 手绘 API | 未提 | `sketch*` / `hand*` / `SketchOptions` / `branchPath` |

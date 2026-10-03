@@ -10,7 +10,7 @@ v1.0.0 · MIT · React 18 / 19
 
 | | |
 | --- | --- |
-| **它是** | 一个 React 组件：给定一棵 `MindNode` 树，渲染成可点选 / 可编辑 / 可撤销 / 可导入导出的 SVG 导图，并通过 `ref` 暴露 71 个命令式方法给宿主驱动。 |
+| **它是** | 一个 React 组件：给定一棵 `MindNode` 树，渲染成可点选 / 可编辑 / 可撤销 / 可导入导出的 SVG 导图，并通过 `ref` 暴露 74 个命令式方法给宿主驱动。 |
 | **它不是** | 不是 B/S 前端框架之外的任何运行时服务；不自带后端与云同步；不打包 `katex` 的 CSS（公式节点需宿主自行引入）；不是图形库（连线 / 布局 / 手绘全部自己算）。 |
 | **规模** | 组件目录 23 个文件 ≈ 1.2 万行（含 CSS），唯一入口 `src/components/MindMap/index.ts`。 |
 
@@ -28,7 +28,7 @@ v1.0.0 · MIT · React 18 / 19
 | 4 | **节点 / 多选补齐项** | 逐节点：缩略图、标签、LaTeX 公式、外框、子树概要、关联线，外加标记 / 优先级 / 进度 / emoji 前缀；多选：选中 ≥2 个 → 画布浮动条一键生成「关联线 / 概要 / 分组框」，落地后双击改文案 | API 手册 §3.3–3.4、§4.3–4.4 |
 | 6 | **导入导出** | `.km` `.mm` `.smm` `.xmind` `.json` `.xml` `.txt` 导入；`png` `svg` `km` `mm` `smm` `json` `xmind` 导出；含 UTF-16 / GB18030 编码嗅探与结构还原 | API 手册 §6 |
 | 7 | **撤销重做** | 画布焦点区 80 步历史，键盘 `Ctrl/Cmd+Z` / `Shift+Z` / `Ctrl+Y` | API 手册 §3.1 |
-| 8 | **命令式 API** | `ref` 上 71 个方法：数据、结构、多选、样式、配置、模式、视图、几何、导出全覆盖 | API 手册 §3 |
+| 8 | **命令式 API** | `ref` 上 74 个方法：数据、结构、多选、样式、配置、模式、视图、几何、导出全覆盖 | API 手册 §3 |
 | 9 | **UI 部件可拆** | `MainMenu` 九宫格菜单、`MultiSelectBar` 浮动条、8 个配置面板 + 3 类缩略图、`Dialog`、`Icon` 均为官方导出，可拿来拼自己的外层菜单 | API 手册 §1.3 |
 | 10 | **确定性手绘** | 抖动只依赖「几何 + 种子」，不用 `Math.random()` —— 重渲染与导出 SVG 结果一致 | API 手册 §7.2 |
 | 11 | **SSR 可骨架渲染** | `react-dom/server` 能出节点骨架；缩略图导航、公式宽度、Portal 浮层在服务端不可靠 | API 手册 §9 |
@@ -73,7 +73,7 @@ vendor 进源码工程时**不需要**引 CSS —— `MindMap.tsx:96` 已经 `im
 | `style` | `dist-lib/style.css` | 全部 `mm-` 前缀样式 |
 | `exports["./style.css"]` | `dist-lib/style.css` | 显式引入路径 |
 | `exports["./dist-lib/*"]` | `dist-lib/*` | 子路径直取（vendor 场景常用） |
-| `files` | `["dist-lib", "README.md"]` | 发布包内容 |
+| `files` | `["dist-lib", "README.md", "docs/API.md"]` | 发布包内容（npm 包里也带 API 手册） |
 
 `react` / `react-dom` / `react/jsx-runtime` 是外部依赖，不进产物。
 
@@ -157,7 +157,7 @@ export default function App() {
 <MindMap data={sampleTree()} defaultConfig={{ themeId: "dark-blue", structure: "org", lineStyle: "elbow" }} />
 ```
 
-`MindMapProps` 共 11 个字段（`data` / `width` / `height` / `className` / `fitOnMount` / `editable` / `showToolbar` / `onChange` / `defaultConfig` / `onScaleChange` / `onSelectChange`）与「命令式 API 全量 71 个方法签名」，见 API 手册 §2、§3。
+`MindMapProps` 共 11 个字段（`data` / `width` / `height` / `className` / `fitOnMount` / `editable` / `showToolbar` / `onChange` / `defaultConfig` / `onScaleChange` / `onSelectChange`）与「命令式 API 全量 74 个方法签名」，见 API 手册 §2、§3。
 
 ---
 
@@ -247,4 +247,4 @@ npm run verify   # bash verify/run.sh
 
 ## 11 延伸阅读
 
-**[docs/API.md](docs/API.md) —— 完整 API 手册**：导出符号总表、`MindMapProps` 全量、`MindMapApi` 71 个方法逐个签名与坑、全部类型定义、枚举常量全表、IO 导入导出、几何 / 手绘 / 文本工具、CSS 类名清单、SSR 说明、集成示例与已知缺陷。
+**[docs/API.md](docs/API.md) —— 完整 API 手册**：导出符号总表、`MindMapProps` 全量、`MindMapApi` 74 个方法逐个签名与坑、全部类型定义、枚举常量全表、IO 导入导出、几何 / 手绘 / 文本工具、CSS 类名清单、SSR 说明、集成示例与已知缺陷。

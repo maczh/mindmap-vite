@@ -29,7 +29,8 @@
   },
   "files": [
     "dist-lib",
-    "README.md"
+    "README.md",
+    "docs/API.md"
   ],
   "sideEffects": [
     "./dist-lib/style.css"

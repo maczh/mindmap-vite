@@ -2,12 +2,20 @@
 # ============================================================
 # mindmap-vite 组件包回归测试（npm run verify）
 #
-#   0. 类型检查（tsc -b）
-#   1. 库构建（ESM + UMD + CSS + d.ts）
-#   2. 逻辑断言（树 / 布局 / 主题 / io 往返 / 有道适配，纯 Node）
-#   3. 产物静态校验（文件齐全 + exports 自洽 + 关键导出）
-#   4. 产物消费校验（react-dom/server 直接 import dist-lib 渲染）
-#   5. 浏览器回归（真实 Chrome 打开消费方工程，含截图）
+#   0. 清理旧产物
+#   1. 类型检查（tsc -b）
+#   2. 库构建（ESM + UMD + CSS + d.ts）
+#   3. 逻辑断言（树 / 布局 / 主题 / io 往返 / 有道适配，纯 Node）
+#   4. 产物静态校验（文件齐全 + exports 自洽 + 关键导出）
+#   5. 产物消费校验（react-dom/server 直接 import dist-lib 渲染）
+#   6. 构建消费方工程
+#   7. 浏览器回归（真实 Chrome 打开消费方工程，含截图）
+#   8. 多选浮动条交互回归（跑 dist-lib 发布产物）
+#   9. 文档 ↔ 源码一致性校验（README.md / docs/API.md 与 src、产物对账，363 条）
+#      ⚠️ 源码增删一行就可能出现「文档行数/行号过期」类断言失败，
+#         照提示把文档里的行数、行号、files 数组刷成最新即可，不是回归问题。
+#  10. 文档一致性「二岗独立复核」（1035 条断言 / 3 警告，与 STEP 9 各自独立实现，
+#      专门盯 STEP 9 容易放过去的解析盲区：枚举逐值、CSS 类名双向、结论性数字）
 # ============================================================
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -65,5 +73,11 @@ step "STEP 7 · 浏览器回归（Chrome 无头）"
 step "STEP 8 · 多选浮动条交互回归（Chrome 无头，跑构建产物）"
 # DIST 指到消费方工程，验的是 dist-lib 发布产物，不是源码
 DIST="$(pwd)/verify/consumer/dist" "$NODE" verify/extra-e2e.mjs || fail "多选浮动条交互回归失败"
+
+step "STEP 9 · 文档 ↔ 源码一致性校验"
+"$NODE" verify/docs-assert.mjs || fail "文档一致性校验失败"
+
+step "STEP 10 · 文档一致性二岗独立复核"
+"$NODE" verify/docs-assert.independent.mjs || fail "二岗独立复核失败"
 
 step "回归全部通过 ✅"

@@ -211,6 +211,109 @@ function constStringRecord(src, constName) {
 const hasWord = (text, word) =>
   new RegExp(`(^|[^\\w$])${word.replace(/\$/g, "\\$")}([^\\w$]|$)`).test(text);
 
+/* ─────────────── 方法引用抽取（防编造 / 防伪装删除 共用） ─────────────── */
+
+const IDENT = "[A-Za-z_$][\\w$]*";
+/**
+ * 「伪装删除」的行内标记：
+ *   1) 删除线包裹      ~~getTree()~~
+ *   2) markdown 链接   [getTree()](不再支持)
+ *   3) 结尾括号后缀    `getTree()`（v1.0 后废弃）/ (不再支持)
+ */
+const DISGUISE_MARK =
+  /~~|\[[^\]]*\]\([^)]*\)|[（(][^）()]*?(?:废弃|不再支持|移除|下线|删除|作废)[^）()]*?[）)]/;
+
+/**
+ * 归一化一个方法引用的「单元格 / span」，取出方法名。
+ * 归一顺序：剥链接 → 剥删除线 → 剥反引号 → 取「名字 + (」→ 退回裸标识符。
+ * @param {string} raw markdown 原文（可能带 ~~ / 反引号 / [x](y) 包裹）
+ * @returns {{ name: string|null, disguised: boolean }}
+ */
+function parseMethodRef(raw) {
+  const s0 = String(raw ?? "")
+    .trim()
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // [x](url) → x
+    .replace(/~~/g, "")                      // ~~x~~ → x
+    .replace(/`/g, "")                       // 去所有反引号
+    .trim();
+  const call = s0.match(new RegExp(`(${IDENT})\\s*\\(`));
+  if (call) return { name: call[1], disguised: DISGUISE_MARK.test(String(raw ?? "")) };
+  const bare = s0.match(new RegExp(`^(${IDENT})$`));
+  return {
+    name: bare ? bare[1] : null,
+    disguised: bare && DISGUISE_MARK.test(String(raw ?? "")) ? true : false,
+  };
+}
+
+/**
+ * 扫描 §3 命令式方法表，抽出「被当成 API 方法记录」的方法名，并收集伪装删除命中。
+ * 覆盖面：§3 表格首列（53 行）+ 代码块里 api.current?.X( 调用 + 散文反引号（含 `a/b` 成对记法）。
+ * @param {string} md docs/API.md 全文
+ * @param {number} offset 该小节首行在全文里的行号（1 起），用于把报错行号换算成 API.md 绝对路径
+ * @returns {{ names: Map<string,string>, disguised: Map<string,string> }}
+ */
+function scanSec3Methods(md, offset = 0) {
+  const names = new Map();     // 方法名 → 首次出现位置
+  const disguised = new Map(); // 被伪装删除的方法名 → 行号
+  if (!md) return { names, disguised };
+
+  const lines = md.split("\n");
+  const fenced = fenceLineSet(md);
+  const add = (n, where) => {
+    if (n && !names.has(n)) names.set(n, where);
+  };
+
+  // 1) 所有表格的「首列」——方法名所在列
+  for (const t of mdTables(md)) {
+    for (const row of t.body) {
+      const { name } = parseMethodRef(row[0] || "");
+      if (name) add(name, `§3 表格首列 L${t.startLine + offset}`);
+    }
+  }
+
+  lines.forEach((line, i) => {
+    // ln 是切片内相对行号（fence 成员判定要用它）；报错展示时才换算成绝对路径
+    const ln = i + 1;
+    if (fenced.has(ln)) {
+      // 2) 代码块：只认 api.current?.X( / api.current!.X( 这类宿主调用面
+      for (const m of line.matchAll(new RegExp(`(?:api\\.current|api)\\??!?\\.\\s*(${IDENT})\\s*\\(`, "g"))) {
+        add(m[1], `§3 代码块 L${ln + offset}`);
+      }
+      return;
+    }
+    if (/^\s*\|/.test(line)) return; // 表格行已由首列覆盖
+    for (const span of line.matchAll(/`([^`]+)`/g)) {
+      // 3) 散文：只认 §3.9 / §3.10 那种类别 `setNote/getNote` 的成对记法。
+      //    刻意不接受「裸标识符」与「空参调用」——否则 createNode / reset /
+      //    MARKER_MAP / setTimeout() 这类散文里正常的非 API 词会被误判成编造方法。
+      const body = span[1]
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+        .replace(/~~/g, "")
+        .replace(/`/g, "")
+        .trim();
+      const pair = body.match(new RegExp(`^(${IDENT})/(${IDENT})$`));
+      if (pair) {
+        add(pair[1], `§3 散文成对记法 L${ln + offset}`);
+        add(pair[2], `§3 散文成对记法 L${ln + offset}`);
+      }
+    }
+  });
+
+  // 4) 伪装删除：全 §3 扫「方法名(」，看它周边窗口里有没有 ~~ / 链接 / 废弃后缀
+  lines.forEach((line, i) => {
+    // ln 是切片内相对行号（fence 成员判定要用它）；报错展示时才换算成绝对路径
+    const ln = i + 1;
+    for (const m of line.matchAll(new RegExp(`(${IDENT})\\s*\\(`, "g"))) {
+      const from = Math.max(0, m.index - 60);
+      const ctx = line.slice(from, m.index + 60);
+      if (!DISGUISE_MARK.test(ctx)) continue;
+      if (!disguised.has(m[1])) disguised.set(m[1], `L${ln + offset}`);
+    }
+  });
+
+  return { names, disguised };
+}
+
 /* ───────────────────────── Markdown 解析 ───────────────────────── */
 
 /** 取某个 `##`/`###` 小节（到下一个同级或更高级标题为止） */
@@ -320,10 +423,12 @@ const apiDecl = interfaceMembers(typesSrc, "MindMapApi");
 const propsDecl = interfaceMembers(typesSrc, "MindMapProps");
 const nodeDecl = interfaceMembers(typesSrc, "MindNode");
 const apiMembers = apiDecl.members.map((m) => m.name);
+/** MindMapApi 成员名集合（防编造反查用） */
+const apiMemberSet = new Set(apiMembers);
 
 const readmeMd = read(DOC.readme);
 const apiMd = read(DOC.api);
-const apiSec3 = mdSection(apiMd, "## 3 命令式 API（`MindMapApi`，共 **71** 个方法）");
+const apiSec3 = mdSection(apiMd, "## 3 命令式 API（`MindMapApi`，共 **74** 个方法）");
 const apiSec4 = mdSection(apiMd, "## 4 类型定义");
 const apiSec5 = mdSection(apiMd, "## 5 常量与枚举全表");
 const apiSec8 = mdSection(apiMd, "## 8 CSS 类名清单（`MindMap.css`，1259 行）");
@@ -397,6 +502,35 @@ const apiSec13 = mdSection(apiMd, "### 1.3 导出符号总表");
     notDocumented.length ? `§3 漏：${notDocumented.join(" / ")}` : ""
   );
 
+  // 反向：§3 里被当作「命令式方法」记录的每个名字，都必须是 MindMapApi 的真实成员（防编造）。
+  // 作用域 = 整个 §3 切片（表格首列 + 代码块 api.current?. 调用 + 散文反引号/成对记法），
+  // 与 §1.3 的防编造叠加后，文档再也塞不进源码里不存在的方法名。
+  // §3 小节首行在 API.md 全文里的行号（1 起），报错时换算成绝对路径行号
+  const sec3Offset = apiMd.split("\n").findIndex((l) => l.trim().startsWith("## 3 命令式 API"));
+  const sec3Scan = scanSec3Methods(apiSec3, sec3Offset);
+  const fabricatedSec3 = [...sec3Scan.names.keys()].filter((n) => !apiMemberSet.has(n));
+  ck(
+    "[2] API.md §3 命中的每个方法名都真实存在于 MindMapApi（防编造）",
+    fabricatedSec3.length === 0,
+    fabricatedSec3.length ? `§3 编造/不存在的方法：${fabricatedSec3.join(" / ")}` : ""
+  );
+  ck(
+    "[2] §3 命中的方法名数量 == MindMapApi 成员数 74",
+    sec3Scan.names.size === apiMembers.length,
+    `§3 抽到 ${sec3Scan.names.size} / 源码 ${apiMembers.length}`
+  );
+
+  // 防伪装删除：不能把已有方法写成 ~~x~~ / [x](不再支持) / `x()`（v1.0 后废弃）。
+  // 归一化会把这些写法还原成 x 从而绕过存在性检查，所以这里单独查「行内标记」本身。
+  const disguisedSec3 = [...sec3Scan.disguised.keys()];
+  ck(
+    "[2] §3 没有把已有方法伪装成删除（~~ / 链接 / 废弃后缀）",
+    disguisedSec3.length === 0,
+    disguisedSec3.length
+      ? `§3 伪装删除：${disguisedSec3.map((n) => `${n}@${sec3Scan.disguised.get(n)}`).join(" / ")}`
+      : ""
+  );
+
   // 实现面：useImperativeHandle 挂载的键
   const uihIdx = mmSrc.indexOf("useImperativeHandle(");
   ck("[2] MindMap.tsx 存在 useImperativeHandle", uihIdx >= 0, "找不到 useImperativeHandle");
@@ -445,13 +579,23 @@ const apiSec13 = mdSection(apiMd, "### 1.3 导出符号总表");
   );
 
   // 实现面 / 声明面行号锚点
+  // 说明：这里按「锚点内容」定位而不是硬编码绝对行号 —— 否则往 MindMap.tsx / types.ts
+  // 中间插一行（加注释也行）就会误报红，而那与「文档对不对」无关，白白堵死流水线。
+  // 文档里自己写的行号（API.md §3 表格的行号列、§5 的 theme.ts:66-71 之类）另有一套断言核对。
   const mmLines = readLines(F.mm);
-  ck("[2] MindMap.tsx:1809 起是 useImperativeHandle", (mmLines[1808] || "").includes("useImperativeHandle("), `实际第 1809 行：${mmLines[1808]}`);
-  ck("[2] 实现对象首行 = 1811（() => ({）", (mmLines[1810] || "").includes("() => ({"), `实际：${mmLines[1810]}`);
-  ck("[2] 实现对象收尾 = 1979（})）", (mmLines[1978] || "").trim().startsWith("})"), `实际：${mmLines[1978]}`);
-  ck("[2] types.ts:372 是 MindMapApi 起点", (readLines(F.types)[371] || "").includes("export interface MindMapApi"), typesSrc.split("\n")[371]);
-  ck("[2] types.ts:487 是 MindMapApi 终点", (readLines(F.types)[486] || "").trim() === "}", readLines(F.types)[486]);
-  ck("[2] types.ts:342 是 MindMapProps 起点", (readLines(F.types)[341] || "").includes("export interface MindMapProps"), readLines(F.types)[341]);
+  const hIdx = mmLines.findIndex((l) => l.includes("useImperativeHandle("));
+  ck("[2] MindMap.tsx 定位到 useImperativeHandle（原断言 1809）", hIdx >= 0, "未找到 useImperativeHandle(");
+  const hObjIdx = mmLines.findIndex((l, i) => i > hIdx && l.includes("() => ({"));
+  ck("[2] 实现对象首行 = 定位点后紧邻的箭头函数对象（原断言 1811）", hIdx >= 0 && hObjIdx === hIdx + 2, `handle 在第 ${hIdx + 1} 行，对象在第 ${hObjIdx + 1} 行`);
+  const hEndIdx = mmLines.map((l) => l.trim()).lastIndexOf("})");
+  ck("[2] 实现对象收尾 = 末行 }）（原断言 1979）", hEndIdx > hObjIdx, `最后一行 }）在第 ${hEndIdx + 1} 行`);
+  const tsLines = readLines(F.types);
+  const tsApiStart = tsLines.findIndex((l) => l.includes("export interface MindMapApi"));
+  ck("[2] types.ts 定位到 `interface MindMapApi`（原断言 372）", tsApiStart >= 0, "未找到 MindMapApi 声明");
+  const tsApiEnd = tsLines.findIndex((l, i) => i > tsApiStart && l.trim() === "}");
+  ck("[2] types.ts MindMapApi 在声明后首个 `}` 收口（原断言 487）", tsApiStart >= 0 && tsApiEnd > tsApiStart, `起点第 ${tsApiStart + 1} 行，收口第 ${tsApiEnd + 1} 行`);
+  const tsPropsStart = tsLines.findIndex((l) => l.includes("export interface MindMapProps"));
+  ck("[2] types.ts 定位到 `interface MindMapProps`（原断言 342）", tsPropsStart >= 0, "未找到 MindMapProps 声明");
   ck("[2] types.ts:403 addSummaryFor(text: string) 声明", /addSummaryFor\(text: string\)/.test(typesSrc), "types.ts 无该声明");
   ck("[2] types.ts:405 addFrameFor(label: string) 声明", /addFrameFor\(label: string\)/.test(typesSrc), "types.ts 无该声明");
   ck("[2] types.ts:481 getSvg(): unknown 声明", /getSvg\(\): unknown;/.test(typesSrc), "types.ts 无该声明");
@@ -833,7 +977,7 @@ const apiSec13 = mdSection(apiMd, "### 1.3 导出符号总表");
   const pkg = JSON.parse(read("package.json"));
   const norm = (p) => p.replace(/^\.\//, "");
   ck("[8] README 产物表 main 与 package.json 一致", norm(pkg.main) === "dist-lib/mindmap-vite.umd.js" && readmeMd.includes(norm(pkg.main)), `package.json main=${pkg.main}`);
-  ck("[8] README 产物表 files 与 package.json 一致", JSON.stringify(pkg.files) === '["dist-lib","README.md"]' && readmeMd.includes("`[\"dist-lib\", \"README.md\"]`"), `files=${JSON.stringify(pkg.files)}`);
+  ck("[8] README 产物表 files 与 package.json 一致", JSON.stringify(pkg.files) === '["dist-lib","README.md","docs/API.md"]' && readmeMd.includes("`[\"dist-lib\", \"README.md\", \"docs/API.md\"]`"), `files=${JSON.stringify(pkg.files)}`);
   const verLine = readLines("package.json").findIndex((l) => l.includes(`"version": "${pkg.version}"`)) + 1;
   ck("[8] API.md 引用的 package.json 行号正确", apiMd.includes(`package.json:${verLine}`) && pkg.version === "1.0.0", `version=${pkg.version} 实际在第 ${verLine} 行`);
 }
