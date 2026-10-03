@@ -89,7 +89,8 @@ function App() {
           nodeCount: document.querySelectorAll(".mm-node").length,
           linkCount: document.querySelectorAll(".mm-link").length,
           toolbarButtons: document.querySelectorAll(".mm-tb-btn").length,
-          structureCards: document.querySelectorAll(".mm-structure-card").length,
+          // 结构卡类名跟着 panels.tsx 走：网格容器 + 卡片，两者都要数
+          structureCards: document.querySelectorAll(".mm-structure-grid .mm-structure-card").length,
           uiOnly: document.querySelectorAll(".mm-ui-only").length,
           hasSvg: !!svg,
           pathCount: svg ? svg.querySelectorAll("path").length : 0,

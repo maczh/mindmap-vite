@@ -54,6 +54,7 @@ import {
   parseXmind,
 } from "../src/components/MindMap/io";
 import { fromFlat, fromNested, parseMindmapJson } from "../src/components/MindMap/io/json";
+import { extrasEditTarget, extrasHitTest, frameGroupGeom } from "../src/components/MindMap/extras";
 import { adaptYoudaoMindmap, type YoudaoMindmap } from "../src/data/adapter";
 import type { MindNode, StructureType } from "../src/components/MindMap/types";
 
@@ -240,6 +241,58 @@ eq(countNodes(deepTree) > 1, true, "sampleTree 非空");
   eq(adapted.title, "中心主题", "adapt 根标题");
   eq(countNodes(adapted), 3, "adapt 节点数");
   eq(adapted.children[0].children[0].title, "叶子", "adapt 层级");
+
+  /* ------------------------------ 概要 / 分组框：文案编辑与双击命中 ------------------------------ */
+  group("extras");
+  const lpos = layoutTree(root, layoutOpts("mindmap"));
+  const eboxes = new Map<string, { x: number; y: number; w: number; h: number }>();
+  for (const p of lpos.nodes) eboxes.set(p.node.id, { x: p.x, y: p.y, w: p.w, h: p.h });
+  const extrasRoot = {
+    ...root,
+    summaryGroups: [{ id: "s1", nodeIds: ["a", "b"], text: "概要" }],
+    frameGroups: [{ id: "f1", nodeIds: ["a", "b"], label: "分组" }],
+  } as MindNode;
+
+  const sumT = extrasEditTarget(extrasRoot, eboxes, "summary", "s1");
+  ok(!!sumT, "概要可编辑目标能解析出编辑框");
+  eq(sumT?.value, "概要", "概要编辑初值 = 当前文案");
+  eq(
+    sumT ? sumT.x === sumT.x && sumT.w > 40 && sumT.h === 26 : false,
+    true,
+    "概要编辑框 = 概要框本体（高 26）"
+  );
+  const hitSum = extrasHitTest(extrasRoot, eboxes, (sumT!.x + sumT!.w / 2), (sumT!.y + sumT!.h / 2));
+  eq(hitSum?.id, "s1", "双击概要框 → 命中该概要");
+  eq(hitSum?.kind, "summary", "双击概要框 → kind=summary");
+
+  const frT = extrasEditTarget(extrasRoot, eboxes, "frame", "f1");
+  eq(frT?.h, 18, "分组编辑框高 = 18（与画出来的标题胶囊一致）");
+  // 编辑框至少和胶囊同宽（短标题时有个 46 的下限，少解一点也盖得住胶囊）
+  ok(
+    !!frT && frT.w >= 12 * 2 + 14 && frT.w >= 46,
+    "分组编辑框不窄于标题胶囊（字宽×字数+留白，下限 46）"
+  );
+  const hitLabel = extrasHitTest(extrasRoot, eboxes, frT!.x + 10, frT!.y + 9);
+  eq(hitLabel?.id, "f1", "双击分组标题 → 命中该分组");
+  eq(hitLabel?.kind, "frame", "双击分组标题 → kind=frame");
+  // 框内空白（分组左上角与胶囊之间的留白）也应能改标题
+  const frameBox = frameGroupGeom(
+    ["a", "b"],
+    eboxes,
+    "分组",
+    "#8b95a5",
+    20
+  )!;
+  const hitBlank = extrasHitTest(extrasRoot, eboxes, frameBox.box.x + 3, frameBox.box.y + 6);
+  eq(hitBlank?.id, "f1", "双击分组框内空白 → 命中该分组");
+  // 压在节点上的双击要让位给「编辑节点文字」
+  const nodeA = eboxes.get("a")!;
+  eq(
+    extrasHitTest(extrasRoot, eboxes, nodeA.x + nodeA.w / 2, nodeA.y + nodeA.h / 2),
+    null,
+    "双击节点本体 → 不命中概览/分组（交给节点编辑）"
+  );
+  eq(extrasHitTest(extrasRoot, eboxes, -9999, -9999), null, "远处双击 → 无命中");
 
   /* ------------------------------ 汇总 ------------------------------ */
   console.log("\n=== 逻辑断言：" + pass + " 通过 / " + fails.length + " 失败 ===");

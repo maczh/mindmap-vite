@@ -14,7 +14,9 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: "dist",
-    emptyOutDir: true,
+    // 刻意不清空：历史产物留着无害（build 按内容哈希命名），
+    // 而每次清空会触发宿主环境的「批量删除保护」，把回归流水线卡在半路。
+    emptyOutDir: false,
     target: "es2020",
   },
 });

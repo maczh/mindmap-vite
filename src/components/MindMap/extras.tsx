@@ -597,6 +597,135 @@ export function commonAncestorCx(
 }
 
 /* ------------------------------------------------------------------ *
+ * 概要 / 分组框文案的「可编辑目标」：双击画布 → 内联编辑
+ * ------------------------------------------------------------------ */
+
+/**
+ * 一个可编辑目标（画布坐标系）。`x/y/w/h` 与 ExtrasLayer 里实际画出的
+ * 概要框 / 分组标题胶囊严格对齐，于是内联输入框能严丝合缝盖在原文案上。
+ */
+export interface ExtrasTarget {
+  kind: "summary" | "frame";
+  id: string;
+  /** 当前文案（进入编辑态时用初值） */
+  value: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** 输入框字号：与 ExtrasLayer 里画出来的字号一致，缩放时才不跳字 */
+  fontSize: number;
+}
+
+type ExtraRoot = NodeLike & {
+  summaryGroups?: MindSummaryGroup[];
+  frameGroups?: MindFrameGroup[];
+};
+
+/**
+ * 分组标题胶囊的尺寸常量——必须与 ExtrasLayer 里画胶囊的那段保持一致
+ * （那里是 `width = label.length * 12 + 14`、`height = 18`、偏移 `+8/+2`）。
+ */
+const FRAME_LABEL = { charW: 12, padX: 14, h: 18, offX: 8, offY: 2 } as const;
+
+/** 把某个概要 / 分组框解析成可编辑目标；找不到（id 过期 / 几何退化）返回 null */
+export function extrasEditTarget(
+  root: ExtraRoot,
+  boxes: Map<string, Box>,
+  kind: "summary" | "frame",
+  id: string
+): ExtrasTarget | null {
+  if (kind === "summary") {
+    const g = root.summaryGroups?.find((s) => s.id === id);
+    if (!g) return null;
+    const geom = summaryGroupGeom(
+      g.nodeIds,
+      boxes,
+      g.text || "概要",
+      g.color || "#7c879b",
+      boxes,
+      commonAncestorCx(root, g.nodeIds, boxes)
+    );
+    if (!geom) return null;
+    return {
+      kind,
+      id,
+      value: g.text || "概要",
+      x: geom.box.x,
+      y: geom.box.y,
+      w: geom.box.w,
+      h: geom.box.h,
+      fontSize: 12,
+    };
+  }
+  const g = root.frameGroups?.find((s) => s.id === id);
+  if (!g) return null;
+  const text = g.label ?? "";
+  const geom = frameGroupGeom(g.nodeIds, boxes, text, g.color || "#8b95a5", text ? 20 : 14);
+  if (!geom) return null;
+  return {
+    kind,
+    id,
+    value: text,
+    x: geom.box.x + FRAME_LABEL.offX,
+    y: geom.box.y + FRAME_LABEL.offY,
+    w: Math.max(FRAME_LABEL.charW * text.length + FRAME_LABEL.padX, 46),
+    h: FRAME_LABEL.h,
+    fontSize: 11,
+  };
+}
+
+/**
+ * 双击命中测试：给一个画布坐标，判断它落在哪个**可编辑文案**上。
+ *
+ * 分组框分两档命中：
+ * 1. 标题胶囊本身（最直觉）；
+ * 2. 框内空白处——但要求没压到任何节点，否则双击会变成「编辑节点文字」。
+ *
+ * 概要框整体都可命中（它本来就小，且画在节点之外不会误伤）。
+ */
+export function extrasHitTest(
+  root: ExtraRoot,
+  boxes: Map<string, Box>,
+  px: number,
+  py: number
+): ExtrasTarget | null {
+  /* 概要框优先：位置靠外，先判它不会误吞分组框 */
+  for (const g of root.summaryGroups ?? []) {
+    const t = extrasEditTarget(root, boxes, "summary", g.id);
+    if (!t) continue;
+    if (px >= t.x - 4 && px <= t.x + t.w + 4 && py >= t.y - 4 && py <= t.y + t.h + 4) return t;
+  }
+
+  for (const g of root.frameGroups ?? []) {
+    const t = extrasEditTarget(root, boxes, "frame", g.id);
+    if (!t) continue;
+    // 1) 标题胶囊（外扩 3px，方便点中）
+    if (px >= t.x - 3 && px <= t.x + t.w + 3 && py >= t.y - 3 && py <= t.y + t.h + 3) return t;
+    // 2) 框内空白处
+    const geom = frameGroupGeom(
+      g.nodeIds,
+      boxes,
+      g.label ?? "",
+      g.color || "#8b95a5",
+      g.label ? 20 : 14
+    );
+    if (!geom) continue;
+    const b = geom.box;
+    if (px < b.x || px > b.x + b.w || py < b.y || py > b.y + b.h) continue;
+    let overNode = false;
+    for (const o of boxes.values()) {
+      if (px >= o.x && px <= o.x + o.w && py >= o.y && py <= o.y + o.h) {
+        overNode = true;
+        break;
+      }
+    }
+    if (!overNode) return t;
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------------ *
  * 图层：关联线 / 外框 / 概要（统一画在连线之上、节点之下）
  * ------------------------------------------------------------------ */
 

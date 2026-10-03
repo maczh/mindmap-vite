@@ -1,4 +1,4 @@
-/* ============================ 容器 ============================ */
+<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#fff}</style><style>/* ============================ 容器 ============================ */
 .mm-wrap {
   position: relative;
   display: flex;
@@ -244,8 +244,55 @@
   margin: 0 3px;
   background: rgba(0, 0, 0, 0.08);
 }
-/* 注：原先的「概要 / 分组文案输入框 + 确认按钮」面板已移除——
-   点按钮即落地，文案直接在画布上内联编辑，见 .mm-editor-input.is-extra。 */
+.mm-msbar-panel {
+  display: grid;
+  gap: 5px;
+  padding: 7px 6px 5px;
+  border-top: 1px solid rgba(0, 0, 0, 0.07);
+}
+.mm-msbar-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.mm-msbar-field > span {
+  flex: none;
+  width: 54px;
+  font-size: 11px;
+  color: #8b95a5;
+}
+.mm-msbar-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid #e2e5e9;
+  border-radius: 6px;
+  background: #fff;
+  color: #1f2329;
+  font-size: 12px;
+  outline: none;
+}
+.mm-msbar-input:focus {
+  border-color: #2f6fed;
+}
+.mm-msbar-cta {
+  height: 27px;
+  margin-bottom: 3px;
+  border: 1px solid #c9dcff;
+  border-radius: 7px;
+  background: #eaf1ff;
+  color: #2f6fed;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mm-msbar-cta:hover {
+  background: #ddeaff;
+}
+.mm-msbar-cta + .mm-msbar-field {
+  margin-top: 2px;
+}
 
 /* ==================== 九宫格主菜单 ==================== */
 .mm-menu {
@@ -600,14 +647,6 @@
   text-align: center;
   box-shadow: 0 6px 18px rgba(47, 111, 237, 0.18);
   font-family: inherit;
-}
-
-/* 概要 / 分组框文案的内联编辑：单行输入框，尺寸由 JS 贴合原文案胶囊 */
-.mm-editor-input.is-extra {
-  padding: 1px 6px;
-  text-align: center;
-  background: #fff;
-  transition: width 0.08s ease;
 }
 
 /* ============================ 左下角停靠区 ============================ */
@@ -1257,3 +1296,73 @@
 .mm-btn-primary:hover {
   background: #2a63d4;
 }
+</style></head><body><div style="position:relative;width:520px;height:420px;background:#f7f8fa;font-family:-apple-system,'PingFang SC',sans-serif">
+  <div class="mm-pop" style="position:absolute;left:20px;top:14px">
+    <button type="button" class="mm-tb-btn is-open"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.6h3.4v3.4H4z"></path><path d="M10.3 4.6h3.4v3.4h-3.4z"></path><path d="M16.6 4.6H20v3.4h-3.4z"></path><path d="M4 10.9h3.4v3.4H4z"></path><path d="M10.3 10.9h3.4v3.4h-3.4z"></path><path d="M16.6 10.9H20v3.4h-3.4z"></path><path d="M4 17.2h3.4v3.4H4z"></path><path d="M10.3 17.2h3.4v3.4h-3.4z"></path><path d="M16.6 17.2H20v3.4h-3.4z"></path></svg></button>
+  </div>
+  <div class="mm-pop-panel mm-menu" style="position:absolute;top:52px;left:20px;width:200px">
+  <button type="button" class="mm-menu-item ">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2h7.4a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"></path></svg>
+        <span>文件</span>
+        <svg class="mm-menu-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"></path></svg>
+      </button><button type="button" class="mm-menu-item ">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"></path><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H9"></path></svg>
+        <span>编辑</span>
+        <svg class="mm-menu-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"></path></svg>
+      </button><button type="button" class="mm-menu-item is-active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5h16v11H4z"></path><path d="M4 13l4.5 4.5h11"></path><path d="M9 9.5h.01"></path><path d="M13 9.5h.01"></path></svg>
+        <span>节点样式</span>
+        <svg class="mm-menu-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"></path></svg>
+      </button><button type="button" class="mm-menu-item ">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 21 8 12 12.5 3 8z"></path><path d="M3 12l9 4.5L21 12"></path><path d="M3 16l9 4.5L21 16"></path></svg>
+        <span>基础样式</span>
+        <svg class="mm-menu-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"></path></svg>
+      </button><button type="button" class="mm-menu-item ">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2a8.8 8.8 0 1 0 0 17.6c1.2 0 1.9-1 1.5-2-.4-1.1.4-2.2 1.6-2.2h1.7a3 3 0 0 0 3-3c0-4.7-3.9-8.4-8.8-8.4z"></path><path d="M7.6 9.4h.01"></path><path d="M11 7.2h.01"></path><path d="M15 8.4h.01"></path><path d="M7.4 13.6h.01"></path></svg>
+        <span>主题</span>
+        <svg class="mm-menu-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"></path></svg>
+      </button><button type="button" class="mm-menu-item ">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 3.5h5v4h-5z"></path><path d="M3 16.5h5v4H3z"></path><path d="M16 16.5h5v4h-5z"></path><path d="M12 7.5v4.5"></path><path d="M8 12v4.5"></path><path d="M16 12v4.5"></path></svg>
+        <span>结构</span>
+        <svg class="mm-menu-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"></path></svg>
+      </button><button type="button" class="mm-menu-item ">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5v17"></path><path d="M6 4.5h11l-2.6 4.4L17 13H6z"></path></svg>
+        <span>标记与图标</span>
+        <svg class="mm-menu-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"></path></svg>
+      </button><button type="button" class="mm-menu-item ">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5v17"></path><path d="M5 4.5h11l-2.6 4.4L16 13H5z"></path></svg>
+        <span>优先级</span>
+        <svg class="mm-menu-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"></path></svg>
+      </button><button type="button" class="mm-menu-item ">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"></path><path d="M12 3.5v8.5"></path><path d="M12 3.5h8.5"></path></svg>
+        <span>进度</span>
+        <svg class="mm-menu-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"></path></svg>
+      </button>
+</div>
+  <div class="mm-pop-panel mm-submenu" style="position:absolute;top:96px;left:224px;width:244px">
+  <div class="mm-pop-label">形状</div>
+  <div class="mm-shape-grid">
+    <button type="button" class="mm-shape-chip ">矩形</button><button type="button" class="mm-shape-chip is-on">圆角</button><button type="button" class="mm-shape-chip ">胶囊</button><button type="button" class="mm-shape-chip ">椭圆</button><button type="button" class="mm-shape-chip ">下划线</button><button type="button" class="mm-shape-chip ">无边框</button>
+  </div>
+  <div class="mm-pop-label">文字颜色</div>
+  <div class="mm-swatches">
+    <button type="button" class="mm-swatch is-on" style="background:#1f2329"></button><button type="button" class="mm-swatch " style="background:#e34d59"></button><button type="button" class="mm-swatch " style="background:#f0a020"></button><button type="button" class="mm-swatch " style="background:#00a870"></button><button type="button" class="mm-swatch " style="background:#2f6fed"></button><button type="button" class="mm-swatch " style="background:#8b5cf6"></button><button type="button" class="mm-swatch " style="background:#1f2329"></button><button type="button" class="mm-swatch " style="background:#8b95a5"></button>
+  </div>
+  <div class="mm-pop-label">外框线型</div>
+  <div class="mm-seg">
+    <button type="button" class="mm-seg-btn ">
+            <svg width="26" height="8" viewBox="0 0 26 8"><line x1="1" y1="4" x2="25" y2="4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-dasharray=""/></svg>
+            <span class="mm-seg-cap">实线</span>
+          </button><button type="button" class="mm-seg-btn is-on">
+            <svg width="26" height="8" viewBox="0 0 26 8"><line x1="1" y1="4" x2="25" y2="4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="5 3"/></svg>
+            <span class="mm-seg-cap">虚线</span>
+          </button><button type="button" class="mm-seg-btn ">
+            <svg width="26" height="8" viewBox="0 0 26 8"><line x1="1" y1="4" x2="25" y2="4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="1 3"/></svg>
+            <span class="mm-seg-cap">点线</span>
+          </button><button type="button" class="mm-seg-btn ">
+            <svg width="26" height="8" viewBox="0 0 26 8"><line x1="1" y1="4" x2="25" y2="4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="6 2.5 1 2.5"/></svg>
+            <span class="mm-seg-cap">点划线</span>
+          </button>
+  </div>
+</div>
+</div></body></html>

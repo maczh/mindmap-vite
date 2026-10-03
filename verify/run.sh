@@ -62,4 +62,8 @@ done
 step "STEP 7 · 浏览器回归（Chrome 无头）"
 "$NODE" verify/browser.mjs || fail "浏览器回归失败"
 
+step "STEP 8 · 多选浮动条交互回归（Chrome 无头，跑构建产物）"
+# DIST 指到消费方工程，验的是 dist-lib 发布产物，不是源码
+DIST="$(pwd)/verify/consumer/dist" "$NODE" verify/extra-e2e.mjs || fail "多选浮动条交互回归失败"
+
 step "回归全部通过 ✅"

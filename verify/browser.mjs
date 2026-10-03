@@ -163,9 +163,10 @@ try {
   ok(backEdit.uiOnly >= 1, `编辑态出现选中环 ${backEdit.uiOnly} 个`);
 
   console.log("\n[工具栏交互]");
+  // 纯图标工具条：结构面板由带 title 的弹层按钮触发（Popover），不再是「结构」下拉框
   await page.evaluate(() => {
-    const el = Array.from(document.querySelectorAll(".mm-tb-combo-text")).find((e) =>
-      (e.textContent || "").includes("结构")
+    const el = Array.from(document.querySelectorAll(".mm-tb-btn")).find((e) =>
+      (e.getAttribute("title") || "").startsWith("结构")
     );
     el?.click();
   });

@@ -1,6 +1,25 @@
 export { MindMap } from "./MindMap";
 export { Toolbar } from "./Toolbar";
 export type { ToolbarProps } from "./Toolbar";
+/* 多选浮动条（关联线 / 概要 / 分组）与九宫格主菜单 */
+export { MultiSelectBar } from "./MultiSelectBar";
+export type { MultiSelectBarProps } from "./MultiSelectBar";
+export { MainMenu, buildMainMenu } from "./Menu";
+export type { MainMenuItem, MainMenuProps, MainMenuActions } from "./Menu";
+/* 工具条 / 主菜单共用的面板（可在外层自定义菜单时复用） */
+export {
+  NodeStylePanel,
+  BaseStylePanel,
+  ThemePanel,
+  StructurePanel,
+  MarkerPanel,
+  PriorityPanel,
+  ProgressPanel,
+  IconPanel,
+  StructureThumb,
+  ThemeSwatch,
+  BranchThumb,
+} from "./panels";
 export { Dialog } from "./Dialog";
 export { Icon } from "./Icons";
 export type { IconName, IconProps } from "./Icons";

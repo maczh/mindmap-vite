@@ -43,7 +43,15 @@ import {
   type PositionedNode,
 } from "./layout";
 import { measureText } from "./text";
-import { ExtrasLayer, FormulaText, NodeImage, NodeTags } from "./extras";
+import {
+  ExtrasLayer,
+  FormulaText,
+  NodeImage,
+  NodeTags,
+  extrasEditTarget,
+  extrasHitTest,
+  type ExtrasTarget,
+} from "./extras";
 import {
   MARKER_MAP,
   NODE_ICON_MAP,
@@ -72,12 +80,15 @@ import {
   type TreeOpResult,
 } from "./tree";
 import { Toolbar } from "./Toolbar";
+import { MultiSelectBar } from "./MultiSelectBar";
+import { MainMenu, buildMainMenu } from "./Menu";
 import { Dialog } from "./Dialog";
 import { Icon } from "./Icons";
 import { Minimap } from "./Minimap";
 import {
   downloadBlob,
   exportTree,
+  IMPORT_ACCEPT,
   parseMindmapFile,
   type ExportFormat,
   type SvgPayload,
@@ -87,6 +98,15 @@ import "./MindMap.css";
 const MIN_SCALE = 0.15;
 const MAX_SCALE = 3;
 const HISTORY_LIMIT = 80;
+/** 新概要 / 新分组框的默认文案：点一下浮动条就先落这个字，随后可双击改写 */
+const SUMMARY_DEFAULT = "概要";
+const FRAME_DEFAULT = "分组";
+/**
+ * 概要 / 分组框的内联编辑态。刻意只存「身份 + 草稿文案」：
+ * 编辑框的 x/y/w/h 由 `extrasEditTarget` 从当前布局实时算（拖拽、缩放后都贴得住），
+ * 不必在 state 里缓存一份随时会过期的几何。
+ */
+type ExtrasEditState = { kind: "summary" | "frame"; id: string; value: string };
 
 /** 拖放落点方式：同级前插 / 同级后插 / 挂接为子节点 */
 type DropMode = "before" | "after" | "child";
@@ -572,6 +592,16 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
   const editingRef = useRef(editing);
   editingRef.current = editing;
 
+  /**
+   * 概要 / 分组框文案的内联编辑态（双击画布上的文案进入）。
+   * 与 `editing`（节点标题）分开：两者的落库位置不同
+   * （`node.title` vs `summaryGroups[].text` / `frameGroups[].label`）。
+   */
+  const [extraEdit, setExtraEdit] = useState<ExtrasEditState | null>(null);
+  const extraEditRef = useRef(extraEdit);
+  extraEditRef.current = extraEdit;
+  const extraInputRef = useRef<HTMLInputElement>(null);
+
   const [dialog, setDialog] = useState<{
     kind: "note" | "link";
     value: string;
@@ -585,6 +615,8 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
   const stageRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
+  /** 主菜单的「文件 → 打开」需要一个隐藏 input 触发；放在这里与工具条共用 */
+  const menuFileRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<number | undefined>(undefined);
   /** 转发给键盘快捷键使用的导出函数（避免闭包捕获旧的布局尺寸） */
   const exportRef = useRef<(format: ExportFormat) => void>(() => {});
@@ -1060,6 +1092,19 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
     }
   }, [editing?.id]);
 
+  /** 概要 / 分组框文案：进入编辑态就自动聚焦并全选，刚生成也能直接打字 */
+  useEffect(() => {
+    if (!extraEdit) return;
+    const t = window.setTimeout(() => {
+      const el = extraInputRef.current;
+      if (!el) return;
+      el.focus();
+      // 与节点标题编辑保持一致：全选原文案，生成的「概要 / 分组」直接打字即覆盖
+      el.select();
+    }, 20);
+    return () => window.clearTimeout(t);
+  }, [extraEdit?.id, extraEdit?.kind]);
+
   /* ------------------------------ 键盘导航 ------------------------------ */
 
   const navigate = useCallback(
@@ -1107,6 +1152,16 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
 
   const onKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>) => {
+      // 概要 / 分组框文案正在编辑：焦点可能已被点到画布上，
+      // 这时输入框拿不到按键，由这里兜住 Esc 收起编辑框。
+      if (extraEdit) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          cancelExtraEdit();
+        }
+        return;
+      }
+      // 节点标题处于内联编辑中：快捷键一律让位给输入框
       if (editing) return;
       const meta = e.ctrlKey || e.metaKey;
 
@@ -1196,6 +1251,7 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
       addSibling,
       applyStyle,
       editing,
+      extraEdit,
       moveSibling,
       navigate,
       outdent,
@@ -1497,6 +1553,17 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
     () => layout.nodes.map((p) => ({ id: p.node.id, x: p.x, y: p.y, w: p.w, h: p.h })),
     [layout.nodes]
   );
+  /** 节点盒子查表：ExtrasLayer 画几何、双击命中测试都要用它 */
+  const nodeBoxes = useMemo(() => {
+    const m = new Map<string, { x: number; y: number; w: number; h: number }>();
+    for (const p of layoutNodes) m.set(p.id, { x: p.x, y: p.y, w: p.w, h: p.h });
+    return m;
+  }, [layoutNodes]);
+  /** 当前内联编辑中的概要 / 分组框的编辑框（画布坐标） */
+  const extraEditRect = useMemo(() => {
+    if (!extraEdit) return null;
+    return extrasEditTarget(doc.tree, nodeBoxes, extraEdit.kind, extraEdit.id);
+  }, [doc.tree, extraEdit, nodeBoxes]);
 
   /* --------------------- 命令式 API 依赖的原子操作 --------------------- */
 
@@ -1521,6 +1588,28 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
     () => doc.selectedIds.filter((id) => findNode(doc.tree, id) != null),
     [doc.selectedIds, doc.tree]
   );
+
+  /**
+   * 多选浮动条的锚点：被选节点的包围盒（画布坐标）。
+   * 少��� 2 个时不显示——关联线 / 概要至少要两个节点才有意义。
+   */
+  const multiSelectBounds = useMemo(() => {
+    if (validSelectedIds.length < 2) return null;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const id of validSelectedIds) {
+      const p = layout.byId.get(id);
+      if (!p) continue;
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x + p.w);
+      maxY = Math.max(maxY, p.y + p.h);
+    }
+    if (!Number.isFinite(minX)) return null;
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }, [validSelectedIds, layout.byId]);
 
   /** 为多选生成一段稳定的 id（同一批操作不重复） */
   const groupId = useCallback(
@@ -1564,50 +1653,135 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
   /**
    * 把多选节点汇总为一个概要（截图 3）。
    * 概要框的位置由 ExtrasLayer 依据节点包围盒实时算出，因此这里只存节点 id 集合。
+   *
+   * 点击浮动条的「概要」直接落地：弧线 + 文案一起画出来，并**立刻**把新概要
+   * 的文案切成内联编辑态，用户不必再点一次「确定」。
    */
-  const addSummaryForSelected = useCallback(
-    (text: string) => {
+  const addSummaryForSelected = useCallback(() => {
+    if (!editableNow) return;
+    const ids = validSelectedIds;
+    if (ids.length < 2) {
+      showToast("请按住 Ctrl / Cmd 选中至少 2 个节点", "err");
+      return;
+    }
+    const id = groupId("sum");
+    const cur = treeRef.current.summaryGroups ?? [];
+    dispatch({
+      type: "commit",
+      tree: opUpdate(treeRef.current, treeRef.current.id, {
+        summaryGroups: [...cur, { id, nodeIds: ids, text: SUMMARY_DEFAULT }],
+      }),
+    });
+    // 编辑态要在下一帧再开：等 group 进了树，几何才量得出来
+    window.setTimeout(() => setExtraEdit({ kind: "summary", id, value: SUMMARY_DEFAULT }), 0);
+    showToast(`已为 ${ids.length} 个节点创建概要，可直接改写文案`);
+  }, [editableNow, groupId, showToast, validSelectedIds]);
+
+  /** 把多选节点圈成一个分组框（截图 4）；同上，落地后直接进入标题编辑 */
+  const addFrameForSelected = useCallback(() => {
+    if (!editableNow) return;
+    const ids = validSelectedIds;
+    if (ids.length < 1) {
+      showToast("请先按住 Ctrl / Cmd 选中节点", "err");
+      return;
+    }
+    const id = groupId("frm");
+    const cur = treeRef.current.frameGroups ?? [];
+    dispatch({
+      type: "commit",
+      tree: opUpdate(treeRef.current, treeRef.current.id, {
+        frameGroups: [
+          ...cur,
+          { id, nodeIds: ids, label: FRAME_DEFAULT },
+        ],
+      }),
+    });
+    window.setTimeout(() => setExtraEdit({ kind: "frame", id, value: FRAME_DEFAULT }), 0);
+    showToast(`已为 ${ids.length} 个节点创建分组框，双击可改标题`);
+  }, [editableNow, groupId, showToast, validSelectedIds]);
+
+  /**
+   * 提交概要 / 分组框文案。空文案按各自约定回退：
+   * 概要 → 兜底「概要」（画出来总得有字）；分组 → 清掉标签（只剩虚线框）。
+   */
+  const commitExtraEdit = useCallback(() => {
+    const cur = extraEditRef.current;
+    if (!cur) return;
+    const text = cur.value.replace(/\s+$/, "");
+    const tree = treeRef.current;
+    const origin =
+      cur.kind === "summary"
+        ? tree.summaryGroups?.find((g) => g.id === cur.id)?.text ?? SUMMARY_DEFAULT
+        : tree.frameGroups?.find((g) => g.id === cur.id)?.label ?? "";
+    if (text === origin.trim()) {
+      // 没改就别塞一条撤销记录
+      setExtraEdit(null);
+      focusStage();
+      return;
+    }
+    const next = cur.kind === "summary" ? text || SUMMARY_DEFAULT : text || undefined;
+    const patched =
+      cur.kind === "summary"
+        ? opUpdate(tree, tree.id, {
+            summaryGroups: (tree.summaryGroups ?? []).map((g) =>
+              g.id === cur.id ? { ...g, text: next as string } : g
+            ),
+          })
+        : opUpdate(tree, tree.id, {
+            frameGroups: (tree.frameGroups ?? []).map((g) =>
+              g.id === cur.id ? { ...g, label: next as string | undefined } : g
+            ),
+          });
+    dispatch({ type: "commit", tree: patched });
+    extraEditRef.current = null;
+    setExtraEdit(null);
+    focusStage();
+  }, [focusStage]);
+
+  /**
+   * 放弃修改（Esc）。必须先清空 `extraEditRef` 再 `focusStage()`：
+   * 收起编辑框会把焦点还给画布 → 触发输入框的 onBlur → 若不摘掉 ref 就会被
+   * `commitExtraEdit` 当成「正常提交」写进树，Esc 等于没生效。
+   */
+  const cancelExtraEdit = useCallback(() => {
+    extraEditRef.current = null;
+    setExtraEdit(null);
+    focusStage();
+  }, [focusStage]);
+
+  /** 双击画布上的概要框 / 分组框标题 → 进入内联编辑 */
+  const startExtraEdit = useCallback(
+    (target: ExtrasTarget) => {
       if (!editableNow) return;
-      const ids = validSelectedIds;
-      if (ids.length < 2) {
-        showToast("请按住 Ctrl / Cmd 选中至少 2 个节点", "err");
-        return;
-      }
-      const label = text.trim() || "概要";
-      const cur = treeRef.current.summaryGroups ?? [];
-      dispatch({
-        type: "commit",
-        tree: opUpdate(treeRef.current, treeRef.current.id, {
-          summaryGroups: [...cur, { id: groupId("sum"), nodeIds: ids, text: label }],
-        }),
-      });
-      showToast(`已为 ${ids.length} 个节点创建概要`);
+      focusStage();
+      setExtraEdit({ ...target, value: target.value });
     },
-    [editableNow, groupId, showToast, validSelectedIds]
+    [editableNow, focusStage]
   );
 
-  /** 把多选节点圈成一个分组框（截图 4） */
-  const addFrameForSelected = useCallback(
-    (text: string) => {
-      if (!editableNow) return;
-      const ids = validSelectedIds;
-      if (ids.length < 1) {
-        showToast("请先按住 Ctrl / Cmd 选中节点", "err");
-        return;
-      }
-      const cur = treeRef.current.frameGroups ?? [];
-      dispatch({
-        type: "commit",
-        tree: opUpdate(treeRef.current, treeRef.current.id, {
-          frameGroups: [
-            ...cur,
-            { id: groupId("frm"), nodeIds: ids, label: text.trim() || undefined },
-          ],
-        }),
-      });
-      showToast(`已为 ${ids.length} 个节点创建分组框`);
+  /**
+   * 画布双击命中测试：把屏幕坐标换算成画布坐标后再问 extras 层。
+   *
+   * 走**捕获阶段**（`onDoubleClickCapture`）是必须的：节点组上有一块比外框更大
+   * 的透明命中区（`rect.mm-hit`），分组框的标题胶囊常常压在它下面，冒泡阶段的
+   * 画布监听器根本收不到 dblclick——事件已经被节点吃去「编辑节点标题」了。
+   * 在捕获阶段拦下并 stopPropagation，才能既改到分组标题又不误伤节点编辑。
+   */
+  const onStageDoubleClickCapture = useCallback(
+    (e: ReactMouseEvent) => {
+      if (!editableNow || editingRef.current) return;
+      const st = stageRef.current;
+      if (!st) return;
+      const r = st.getBoundingClientRect();
+      const px = (e.clientX - r.left - transform.tx) / transform.scale;
+      const py = (e.clientY - r.top - transform.ty) / transform.scale;
+      const hit = extrasHitTest(doc.tree, nodeBoxes, px, py);
+      if (!hit) return;
+      e.preventDefault();
+      e.stopPropagation();
+      startExtraEdit(hit);
     },
-    [editableNow, groupId, showToast, validSelectedIds]
+    [doc.tree, editableNow, nodeBoxes, startExtraEdit, transform]
   );
 
   /** 清空多选（不改动树，仅收起选择） */
@@ -1837,6 +2011,42 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
     <div className={`mm-wrap ${className ?? ""}`} style={{ width, height }}>
       {showToolbar && (
         <Toolbar
+          mainMenu={
+            <MainMenu
+              buildItems={(close) =>
+                buildMainMenu({
+                  onNew: () => { close(); handleNew(); },
+                  onOpen: () => { close(); menuFileRef.current?.click(); },
+                  onExport: (f) => { close(); handleExport(f); },
+                  canUndo: doc.past.length > 0,
+                  canRedo: doc.future.length > 0,
+                  onUndo: () => dispatch({ type: "undo" }),
+                  onRedo: () => dispatch({ type: "redo" }),
+                  canDelete: Boolean(doc.selectedId) && doc.selectedId !== doc.tree.id,
+                  onDelete: removeNode,
+                  onInsertParent: addParent,
+                  onInsertSiblingBefore: () => addSibling(true),
+                  onInsertSiblingAfter: () => addSibling(false),
+                  onInsertChild: addChild,
+                  onNote: () => selectedNode && setDialog({ kind: "note", value: selectedNode.note ?? "" }),
+                  onLink: () => selectedNode && setDialog({ kind: "link", value: selectedNode.link ?? "" }),
+                  style: selStyle,
+                  onStyle: applyStyle,
+                  config,
+                  onConfig: (patch) => setConfig((c) => ({ ...c, ...patch })),
+                  onBase: (patch) => setConfig((c) => ({ ...c, base: { ...c.base, ...patch } })),
+                  markers: selectedNode?.markers ?? [],
+                  onToggleMarker: toggleMarker,
+                  priority: selectedNode?.priority,
+                  onSetPriority: setPriority,
+                  progress: selectedNode?.progress,
+                  onSetProgress: setProgress,
+                  icons: selectedNode?.icons ?? [],
+                  onToggleIcon: toggleIcon,
+                })(close)
+              }
+            />
+          }
           canUndo={doc.past.length > 0}
           canRedo={doc.future.length > 0}
           onUndo={() => dispatch({ type: "undo" })}
@@ -1861,11 +2071,6 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
           config={config}
           onConfig={(patch) => setConfig((c) => ({ ...c, ...patch }))}
           onBase={(patch) => setConfig((c) => ({ ...c, base: { ...c.base, ...patch } }))}
-          selectedCount={validSelectedIds.length}
-          onAddAssoc={addAssocBetweenSelected}
-          onAddSummary={addSummaryForSelected}
-          onAddFrame={addFrameForSelected}
-          onClearMultiSelect={clearMultiSelect}
           priority={selectedNode?.priority}
           onSetPriority={setPriority}
           progress={selectedNode?.progress}
@@ -1878,6 +2083,19 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
         />
       )}
 
+      {/* 主菜单「文件 → 打开」用的隐藏 input（工具条自带一个，这里服务于 Portal 菜单） */}
+      <input
+        ref={menuFileRef}
+        className="mm-file-input"
+        type="file"
+        accept={IMPORT_ACCEPT}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handleImport(f);
+          e.target.value = "";
+        }}
+      />
+
       <div
         ref={stageRef}
         className={`mm-stage ${editableNow ? "is-editableNow" : ""}`}
@@ -1888,6 +2106,7 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
         onMouseMove={onStageMouseMove}
         onMouseUp={onStageMouseUp}
         onMouseLeave={onStageMouseUp}
+        onDoubleClickCapture={onStageDoubleClickCapture}
         onContextMenu={(e) => {
           // 空白处右键：屏蔽浏览器原生菜单并关闭已打开的环形菜单
           e.preventDefault();
@@ -2130,6 +2349,8 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
+                    // 还有概要 / 分组文案开着就直接落库，避免两个编辑框并存
+                    if (extraEditRef.current) commitExtraEdit();
                     startEdit(node);
                   }}
                 >
@@ -2608,6 +2829,18 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
             );
           })()}
 
+        {/* 多选浮动条：选中 ≥2 个节点时浮现在选区旁（替代原先的工具条「多选」面板） */}
+        {editableNow && (
+          <MultiSelectBar
+            bounds={multiSelectBounds}
+            transform={transform}
+            onAddAssoc={addAssocBetweenSelected}
+            onAddSummary={addSummaryForSelected}
+            onAddFrame={addFrameForSelected}
+            onClear={clearMultiSelect}
+          />
+        )}
+
         {/* 内联编辑框 */}
         {editing && editPos && editingNode && (
           <div
@@ -2666,6 +2899,52 @@ export const MindMap = forwardRef<MindMapApi, MindMapProps>(function MindMap(
                   e.preventDefault();
                   setEditing(null);
                   focusStage();
+                }
+              }}
+            />
+          </div>
+        )}
+
+        {/* 概要 / 分组框文案的内联编辑：盖在原文案上，回车 / 失焦落库，Esc 撤销 */}
+        {extraEdit && extraEditRect && (
+          <div
+            className="mm-editor is-extra"
+            style={{
+              left: transform.tx + extraEditRect.x * transform.scale,
+              top: transform.ty + extraEditRect.y * transform.scale,
+              transform: `scale(${transform.scale})`,
+              transformOrigin: "top left",
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <input
+              ref={extraInputRef}
+              className="mm-editor-input is-extra"
+              value={extraEdit.value}
+              spellCheck={false}
+              style={{
+                width: Math.max(extraEditRect.w + 16, 72),
+                height: Math.max(extraEditRect.h + 6, 26),
+                fontSize: extraEditRect.fontSize,
+                fontWeight: 600,
+                borderRadius: extraEdit.kind === "frame" ? 9 : 8,
+              }}
+              onChange={(e) =>
+                setExtraEdit((cur) => (cur ? { ...cur, value: e.target.value } : cur))
+              }
+              onBlur={() => commitExtraEdit()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (
+                  (e.key === "Enter" || e.key === "Tab") &&
+                  !(e.nativeEvent as KeyboardEvent).isComposing
+                ) {
+                  e.preventDefault();
+                  commitExtraEdit();
+                } else if (e.key === "Escape") {
+                  // Esc 回退到进入编辑前的文案（树里还是旧值，关掉即可）
+                  e.preventDefault();
+                  cancelExtraEdit();
                 }
               }}
             />
